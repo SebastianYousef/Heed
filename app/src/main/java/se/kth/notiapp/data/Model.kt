@@ -1,0 +1,159 @@
+package se.kth.notiapp.data
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import androidx.room.TypeConverter
+
+/** What we ultimately did with a notification. */
+enum class Decision {
+    /** Passed through / re-raised as a real alert. */
+    ALERTED,
+
+    /** Held in the buffer, still deciding. */
+    HELD,
+
+    /** Filed silently. Lives in the inbox and the next digest, never interrupted the user. */
+    SUPPRESSED,
+}
+
+/** How we managed to act on it — determines whether the user was interrupted. */
+enum class CapturePath {
+    /** NotificationAssistantService.onNotificationEnqueued — demoted before display. Clean. */
+    ASSISTANT,
+
+    /** Listener saw it, but the source app was already silenced, so nothing alerted. Clean. */
+    QUIET_SOURCE,
+
+    /** Listener cancelled it after posting. The user may have seen/heard a flash. */
+    CANCEL_AFTER,
+}
+
+/** Explicit or implicit signal about whether the notification mattered. */
+enum class Feedback {
+    NONE,
+
+    /** User tapped it. Strong positive. */
+    CLICKED,
+
+    /** User swiped it away without opening. Weak negative. */
+    DISMISSED,
+
+    /** User pressed "this mattered" in the inbox. Strongest positive. */
+    MARKED_IMPORTANT,
+
+    /** User pressed "noise" in the inbox. Strongest negative. */
+    MARKED_NOISE,
+}
+
+/** Per-app override. LEARN means the classifier decides. */
+enum class AppPolicy { LEARN, ALWAYS_ALERT, NEVER_ALERT }
+
+@Entity(
+    tableName = "notifications",
+    indices = [Index("postedAt"), Index("packageName"), Index("decision"), Index("sbnKey")],
+)
+data class NotificationRecord(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+
+    /** StatusBarNotification.key — stable while the notification is live. */
+    val sbnKey: String,
+    val packageName: String,
+    val appLabel: String,
+
+    val title: String? = null,
+    val text: String? = null,
+    val bigText: String? = null,
+    val subText: String? = null,
+
+    /** Notification.category, e.g. msg / call / alarm / promo / social. */
+    val category: String? = null,
+    val channelId: String? = null,
+
+    /** NotificationChannel importance as ranked by the system (0..5). */
+    val systemImportance: Int = 3,
+
+    val postedAt: Long,
+    val isOngoing: Boolean = false,
+    val isGroupSummary: Boolean = false,
+    val hasPerson: Boolean = false,
+
+    /** 0..1, higher = more likely to matter to this user. */
+    val score: Float = 0f,
+
+    /** Human-readable trace of what drove the score. Shown in the detail screen. */
+    val scoreReason: String = "",
+
+    val decision: Decision = Decision.HELD,
+    val capturePath: CapturePath = CapturePath.QUIET_SOURCE,
+
+    val feedback: Feedback = Feedback.NONE,
+    val feedbackAt: Long? = null,
+
+    /** Set once this record has been rolled into a digest. */
+    val digestId: Long? = null,
+
+    /** True once the user has laid eyes on it in the inbox. */
+    val seen: Boolean = false,
+) {
+    /** All the text we classify on, concatenated. */
+    val body: String
+        get() = listOfNotNull(title, text, bigText, subText).joinToString("\n")
+}
+
+@Entity(tableName = "app_policies")
+data class AppPolicyRecord(
+    @PrimaryKey val packageName: String,
+    val appLabel: String,
+    val policy: AppPolicy = AppPolicy.LEARN,
+
+    /**
+     * True once the user has confirmed this app's channels are set to silent in Android
+     * settings. Only then can we hold its notifications without them having already
+     * made noise. Drives the onboarding checklist.
+     */
+    val sourceSilenced: Boolean = false,
+
+    val alertedCount: Int = 0,
+    val suppressedCount: Int = 0,
+    val lastSeenAt: Long = 0,
+)
+
+@Entity(tableName = "digests")
+data class DigestRecord(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val createdAt: Long,
+    val windowStart: Long,
+    val windowEnd: Long,
+    val notificationCount: Int,
+    /** Rendered summary text. Templated, or LLM-written when a summarizer is installed. */
+    val summary: String,
+    val delivered: Boolean = false,
+)
+
+/** Single-row table holding the serialised online classifier. */
+@Entity(tableName = "model_state")
+data class ModelState(
+    @PrimaryKey val id: Int = 1,
+    @ColumnInfo(typeAffinity = ColumnInfo.BLOB) val weights: ByteArray,
+    val bias: Float,
+    /** Number of training examples seen. Drives how much we trust the model vs. the rules. */
+    val examplesSeen: Int,
+    val updatedAt: Long,
+) {
+    override fun equals(other: Any?) =
+        other is ModelState && id == other.id && updatedAt == other.updatedAt
+    override fun hashCode() = id * 31 + updatedAt.hashCode()
+}
+
+class Converters {
+    @TypeConverter fun decisionTo(v: Decision) = v.name
+    @TypeConverter fun decisionFrom(v: String) = Decision.valueOf(v)
+    @TypeConverter fun pathTo(v: CapturePath) = v.name
+    @TypeConverter fun pathFrom(v: String) = CapturePath.valueOf(v)
+    @TypeConverter fun feedbackTo(v: Feedback) = v.name
+    @TypeConverter fun feedbackFrom(v: String) = Feedback.valueOf(v)
+    @TypeConverter fun policyTo(v: AppPolicy) = v.name
+    @TypeConverter fun policyFrom(v: String) = AppPolicy.valueOf(v)
+}
