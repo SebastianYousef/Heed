@@ -4,6 +4,7 @@ import io.github.sebastianyousef.heed.focus.FocusEnforcer
 import io.github.sebastianyousef.heed.focus.FocusMode
 import io.github.sebastianyousef.heed.focus.FocusRule
 import io.github.sebastianyousef.heed.focus.KnownScrollers
+import io.github.sebastianyousef.heed.focus.KnownSurfaces
 import io.github.sebastianyousef.heed.focus.LearnedSurface
 import io.github.sebastianyousef.heed.focus.SurfaceMatcher
 import kotlinx.coroutines.runBlocking
@@ -146,5 +147,61 @@ class LaunchAndBedtimeTest {
             FocusEnforcer.Verdict.Allow,
             FocusEnforcer(Fake(null, bedtime = true)).onAppOpened("com.android.dialer"),
         )
+    }
+}
+
+class KnownSurfaceAnchorTest {
+
+    private fun anchor(label: String, viewId: String, block: Boolean = true) = LearnedSurface(
+        packageName = "com.snapchat.android",
+        label = label,
+        fingerprint = viewId,
+        block = block,
+        capturedAt = 0,
+    )
+
+    private val spotlight = anchor("Spotlight", "com.snapchat.android:id/spotlight_card_static_thumbnail")
+    private val discover = anchor("Discover", "com.snapchat.android:id/df_large_story")
+
+    @Test
+    fun `one distinctive id is enough to name the screen`() {
+        val screen = setOf(
+            "cls:android.widget.FrameLayout@0",
+            "id:com.snapchat.android:id/nav_bar",
+            "com.snapchat.android:id/spotlight_card_static_thumbnail",
+        )
+        assertEquals("Spotlight", SurfaceMatcher.match(screen, listOf(spotlight, discover))?.label)
+    }
+
+    @Test
+    fun `chats are not blocked just because they are in the same app`() {
+        val chats = setOf("id:com.snapchat.android:id/chat_list", "id:com.snapchat.android:id/nav_bar")
+        assertNull(SurfaceMatcher.match(chats, listOf(spotlight, discover)))
+    }
+
+    @Test
+    fun `an anchor wins over a whole-layout fingerprint`() {
+        // A taught fingerprint of the chat list should not override an exact Spotlight hit.
+        val taught = surface("Something I taught", STORIES, block = false)
+        val screen = STORIES.toSet() + "com.snapchat.android:id/spotlight_card_static_thumbnail"
+        assertEquals("Spotlight", SurfaceMatcher.match(screen, listOf(taught, spotlight))?.label)
+    }
+
+    @Test
+    fun `an explicit allow on the same anchor carves out an exception`() {
+        val allowed = anchor("Discover", "com.snapchat.android:id/df_large_story", block = false)
+        val screen = setOf("com.snapchat.android:id/df_large_story")
+        assertFalse(SurfaceMatcher.match(screen, listOf(discover, allowed))!!.block)
+    }
+
+    @Test
+    fun `every shipped anchor names a real package and a non-empty id`() {
+        assertTrue(KnownSurfaces.anchors.isNotEmpty())
+        KnownSurfaces.anchors.forEach {
+            assertTrue(it.packageName.contains('.'))
+            assertTrue(it.viewId.isNotBlank())
+            assertTrue(it.label.isNotBlank())
+        }
+        assertEquals(2, KnownSurfaces.forPackage("com.snapchat.android").size)
     }
 }

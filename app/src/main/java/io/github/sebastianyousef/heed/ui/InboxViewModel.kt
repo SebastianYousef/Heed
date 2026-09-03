@@ -158,6 +158,11 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             if (existing != null && loosens(existing, rule)) return@launch
         }
         repo.dao.upsertFocusRule(rule)
+        // Turning on precise matching should just work for Snapchat and friends, rather
+        // than presenting an empty list and an instruction to go teach it something.
+        if (rule.detection == io.github.sebastianyousef.heed.focus.DetectionMode.PRECISE) {
+            repo.seedKnownSurfaces(rule.packageName)
+        }
     }
 
     private fun loosens(

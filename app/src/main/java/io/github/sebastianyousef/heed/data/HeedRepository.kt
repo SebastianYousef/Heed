@@ -383,6 +383,26 @@ class HeedRepository(private val context: Context) {
         io.github.sebastianyousef.heed.capture.NotificationMapper.appLabel(context, pkg)
 
     /**
+     * Install the known screen anchors for an app, so precise mode works immediately for
+     * the apps everybody wants it for instead of requiring you to teach it Spotlight first.
+     */
+    suspend fun seedKnownSurfaces(pkg: String) {
+        val existing = dao.surfacesFor(pkg).map { it.fingerprint }.toSet()
+        for (anchor in io.github.sebastianyousef.heed.focus.KnownSurfaces.forPackage(pkg)) {
+            if (anchor.viewId in existing) continue
+            dao.insertSurface(
+                io.github.sebastianyousef.heed.focus.LearnedSurface(
+                    packageName = pkg,
+                    label = anchor.label,
+                    fingerprint = anchor.viewId,
+                    block = true,
+                    capturedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
+    /**
      * Give an app a rule only if it is one of the handful whose business is the scroll.
      *
      * Seeding every app buries the four that matter — the previous build put a Block rule

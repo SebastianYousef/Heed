@@ -259,6 +259,18 @@ it recognises the shape of a feed without learning a word that is on it. Matchin
 Jaccard overlap at 0.6, because real screens shift between visits and exact matching is
 useless. Trees are only walked for apps explicitly set to Precise.
 
+Where one view id uniquely names a screen, Heed uses that instead of a whole-layout
+fingerprint: exact, cheap, and far more tolerant of redesigns, since a layout can be
+rearranged around an element that keeps its id. `KnownSurfaces` ships anchors for
+Snapchat Spotlight and Discover, Instagram Reels and Explore, YouTube Shorts and Reddit's
+short feed, installed automatically when you switch an app to Precise. An anchor beats a
+taught fingerprint, and an explicit allow beats a block, so exceptions still work.
+
+Those identifiers are facts about other apps' layouts — `uiautomator dump` prints them —
+and were cross-checked against the list in the GPL-2.0 [Mindful](https://github.com/akaMrNagar/Mindful)
+project. No code was taken from it; Heed is MIT (see LICENSE) and copying GPL-2.0 source
+would have forced a licence change.
+
 ### Rules: budget the scrolling, not the app
 
 Every app in this category limits *time in an app*, which forces a choice nobody wants:
