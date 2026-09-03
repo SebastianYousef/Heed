@@ -25,6 +25,9 @@ data class AttentionStat(
     val scrollingSessions: Int,
     /** Notifications from this app you explicitly called noise. */
     val markedNoise: Int,
+    /** Foreground time today only, which is the number people actually want. */
+    val todayMs: Long,
+    val launchesToday: Int,
 ) {
     /** Minutes of your time per notification this app sent. The number that stings. */
     val minutesPerAlert: Double
@@ -36,6 +39,7 @@ object AttentionStats {
     fun build(
         notifications: List<NotificationRecord>,
         sessions: List<SessionRecord>,
+        startOfToday: Long = startOfToday(),
     ): List<AttentionStat> {
         val byId = notifications.associateBy { it.id }
         val sessionsByPkg = sessions.groupBy { it.packageName }
@@ -61,11 +65,20 @@ object AttentionStats {
                 scrollingSessions = appSessions.count {
                     SessionJudge.judge(it) == SessionQuality.SCROLLING
                 },
+                todayMs = appSessions.filter { it.startedAt >= startOfToday }.sumOf { it.durationMs },
+                launchesToday = appSessions.count { it.startedAt >= startOfToday },
                 markedNoise = appNotifications.count {
                     it.feedback == io.github.sebastianyousef.heed.data.Feedback.MARKED_NOISE ||
                         it.feedback == io.github.sebastianyousef.heed.data.Feedback.CLICKED_THEN_SCROLLED
                 },
             )
-        }.sortedByDescending { it.msFromAlerts }
+        }.sortedByDescending { it.todayMs }
     }
+
+    private fun startOfToday(): Long = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
 }

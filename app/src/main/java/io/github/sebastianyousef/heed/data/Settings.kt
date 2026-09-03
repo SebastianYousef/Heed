@@ -49,6 +49,20 @@ data class Settings(
      * this measures the trance rather than the time.
      */
     val scrollInterventionMinutes: Int = 10,
+
+    /** Blocks every app that has a rule, between these hours. */
+    val bedtimeEnabled: Boolean = false,
+    val bedtimeStart: Int = 23,
+    val bedtimeEnd: Int = 7,
+
+    /**
+     * Until this timestamp, rules can be tightened but not loosened.
+     *
+     * The point of a strict mode is that the version of you who set the rule and the
+     * version who wants to break it are not the same person, and only one of them was
+     * thinking clearly. Turning it on is instant; turning it off waits.
+     */
+    val strictUntil: Long = 0L,
 )
 
 class SettingsStore(private val context: Context) {
@@ -64,6 +78,10 @@ class SettingsStore(private val context: Context) {
         val CONTENT_RETENTION = intPreferencesKey("content_retention_days")
         val RECORD_RETENTION = intPreferencesKey("record_retention_days")
         val SCROLL_MINUTES = intPreferencesKey("scroll_intervention_minutes")
+        val BEDTIME_ON = booleanPreferencesKey("bedtime_enabled")
+        val BEDTIME_START = intPreferencesKey("bedtime_start")
+        val BEDTIME_END = intPreferencesKey("bedtime_end")
+        val STRICT_UNTIL = longPreferencesKey("strict_until")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -79,6 +97,10 @@ class SettingsStore(private val context: Context) {
             contentRetentionDays = p[Keys.CONTENT_RETENTION] ?: d.contentRetentionDays,
             recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
             scrollInterventionMinutes = p[Keys.SCROLL_MINUTES] ?: d.scrollInterventionMinutes,
+            bedtimeEnabled = p[Keys.BEDTIME_ON] ?: d.bedtimeEnabled,
+            bedtimeStart = p[Keys.BEDTIME_START] ?: d.bedtimeStart,
+            bedtimeEnd = p[Keys.BEDTIME_END] ?: d.bedtimeEnd,
+            strictUntil = p[Keys.STRICT_UNTIL] ?: d.strictUntil,
         )
     }
 
@@ -98,4 +120,13 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setScrollInterventionMinutes(v: Int) =
         context.dataStore.edit { it[Keys.SCROLL_MINUTES] = v }
+
+    suspend fun setBedtime(enabled: Boolean, start: Int, end: Int) = context.dataStore.edit {
+        it[Keys.BEDTIME_ON] = enabled
+        it[Keys.BEDTIME_START] = start
+        it[Keys.BEDTIME_END] = end
+    }
+
+    suspend fun setStrictUntil(until: Long) =
+        context.dataStore.edit { it[Keys.STRICT_UNTIL] = until }
 }

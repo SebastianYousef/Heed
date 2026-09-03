@@ -57,7 +57,19 @@ class ScrollWatcherService : AccessibilityService() {
                     currentPackage = pkg
                     spanStart = now
                     interventionShown = false
+                    lastPreciseCheck = 0L
                     checkOnOpen(pkg)
+                    checkSurface(pkg)
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Snapchat and friends switch surfaces without a window-state change, so
+                // in-app navigation is only visible here. Heavily throttled, and skipped
+                // entirely unless this app is set to Precise.
+                if (now - lastPreciseCheck >= PRECISE_INTERVAL_MS) {
+                    lastPreciseCheck = now
+                    checkSurface(pkg)
                 }
             }
 
@@ -69,6 +81,10 @@ class ScrollWatcherService : AccessibilityService() {
                     interventionShown = false
                 }
                 recordScroll(now)
+                if (now - lastPreciseCheck >= PRECISE_INTERVAL_MS) {
+                    lastPreciseCheck = now
+                    checkSurface(pkg)
+                }
                 maybeIntervene(pkg, now)
             }
         }
@@ -93,7 +109,7 @@ class ScrollWatcherService : AccessibilityService() {
         val events = scrollCount
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
-            val enforcer = FocusEnforcer.from(repo.dao)
+            val enforcer = FocusEnforcer.from(repo.dao) { repo.isBedtimeNow() }
 
             when (val verdict = enforcer.onScroll(pkg, events, burstMs)) {
                 is FocusEnforcer.Verdict.Block -> {
@@ -122,11 +138,50 @@ class ScrollWatcherService : AccessibilityService() {
         }
     }
 
+    /**
+     * Precise matching: is this a screen the user has taught Heed to block?
+     *
+     * Only ever runs for apps explicitly set to Precise, so no tree is walked for anything
+     * else. A capture request from the UI is honoured for any app, since that is the user
+     * deliberately pointing at a screen.
+     */
+    private fun checkSurface(pkg: String) {
+        if (SurfaceCapture.armed) {
+            val tokens = SurfaceCapture.fingerprint(rootInActiveWindow)
+            if (tokens.size >= 8) {
+                SurfaceCapture.disarm()
+                scope.launch { HeedRepository.get(this@ScrollWatcherService).learnSurface(pkg, tokens) }
+            }
+            return
+        }
+        if (System.currentTimeMillis() - lastBlockAt < BLOCK_COOLDOWN_MS) return
+
+        scope.launch {
+            val repo = HeedRepository.get(this@ScrollWatcherService)
+            val rule = repo.dao.focusRuleFor(pkg) ?: return@launch
+            if (rule.detection != DetectionMode.PRECISE) return@launch
+            val surfaces = repo.dao.surfacesFor(pkg)
+            if (surfaces.isEmpty()) return@launch
+
+            val tokens = SurfaceCapture.fingerprint(rootInActiveWindow)
+            val hit = SurfaceMatcher.match(tokens, surfaces) ?: return@launch
+            if (!hit.block) return@launch
+
+            lastBlockAt = System.currentTimeMillis()
+            FocusOverlay.block(
+                this@ScrollWatcherService,
+                "Not ${hit.label}",
+                "You told Heed to keep you out of this one. The rest of " +
+                    "${rule.appLabel} still works.",
+            )
+        }
+    }
+
     /** Daily usage limits are checked on entry, before a single scroll happens. */
     private fun checkOnOpen(pkg: String) {
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
-            val verdict = FocusEnforcer.from(repo.dao).onAppOpened(pkg)
+            val verdict = FocusEnforcer.from(repo.dao) { repo.isBedtimeNow() }.onAppOpened(pkg)
             if (verdict is FocusEnforcer.Verdict.Block) {
                 lastBlockAt = System.currentTimeMillis()
                 FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
@@ -171,6 +226,7 @@ class ScrollWatcherService : AccessibilityService() {
     }
 
     private var lastBlockAt = 0L
+    private var lastPreciseCheck = 0L
 
     companion object {
         /**
@@ -195,6 +251,12 @@ class ScrollWatcherService : AccessibilityService() {
 
         /** Never block twice in quick succession, or leaving the app becomes a fight. */
         private const val BLOCK_COOLDOWN_MS = 15_000L
+
+        /**
+         * Content-changed events fire constantly. Walking the tree on each one would be a
+         * battery disaster, and a second is fast enough to feel immediate.
+         */
+        private const val PRECISE_INTERVAL_MS = 1_000L
 
         @Volatile var connected = false
             private set

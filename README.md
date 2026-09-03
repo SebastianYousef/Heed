@@ -242,6 +242,23 @@ the session that followed a tap turns out to be doom scrolling, the notification
 recorded as `CLICKED_THEN_SCROLLED` and trains as a negative instead. The filtering gets
 better because the attention tracking exists.
 
+### Telling one screen from another
+
+Behavioural detection cannot distinguish Snapchat's Discovery from Snapchat's chat list,
+because both are simply scrolling. Blocking one and not the other needs to know which
+screen you are on, so `Precise` mode is opt-in per app.
+
+Rather than hardcoding view ids per app — which breaks on every redesign and only covers
+apps someone remembered — Heed learns them. You open the screen, press **Teach a screen**,
+and it records a fingerprint. Do it once for Discovery and again for friends' stories,
+mark the first Blocked and the second Allowed, and the carve-out works.
+
+The fingerprint is **view identifiers and class names only**: the structural skeleton of
+the layout. `SurfaceCapture` never reads `text` or `contentDescription` from any node, so
+it recognises the shape of a feed without learning a word that is on it. Matching is
+Jaccard overlap at 0.6, because real screens shift between visits and exact matching is
+useless. Trees are only walked for apps explicitly set to Precise.
+
 ### Rules: budget the scrolling, not the app
 
 Every app in this category limits *time in an app*, which forces a choice nobody wants:

@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The narrowest possible accessibility service.
+  canRetrieveWindowContent is required to tell one screen in an app from another — there
+  is no other way to know that you are in Snapchat's Discovery rather than its chat list,
+  because both are simply "scrolling".
 
-  canRetrieveWindowContent is deliberately absent. Without it this service cannot read a
-  single word on your screen — not text fields, not messages, not passwords. Android
-  enforces that; it is not a matter of the code choosing not to look. What remains is the
-  bare fact that a scroll happened, and in which app, which is all that detecting doom
-  scrolling actually requires.
+  What Heed does with that access is deliberately narrow. When matching a screen it walks
+  the node tree collecting only `viewIdResourceName` and `className`: the structural
+  skeleton of the layout. It never reads `text` or `contentDescription` from any node, so
+  it can recognise the shape of a feed without learning a word that is on it. Grep the
+  source for `.text` in focus/ — there are no reads.
 
-  accessibilityEventTypes is likewise limited to scroll and window-change events, so the
-  service is not even woken for typing, clicks or focus changes.
+  It only walks the tree at all for apps you have explicitly set to Precise detection.
+  Every other app uses the behavioural path, which needs no content access whatsoever.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
     android:notificationTimeout="100"
     android:description="@string/scroll_watcher_description"
     android:summary="@string/scroll_watcher_summary" />

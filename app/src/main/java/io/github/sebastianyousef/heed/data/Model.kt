@@ -201,6 +201,8 @@ data class ModelState(
 }
 
 class Converters {
+    @TypeConverter fun detectionTo(v: io.github.sebastianyousef.heed.focus.DetectionMode) = v.name
+    @TypeConverter fun detectionFrom(v: String) = io.github.sebastianyousef.heed.focus.DetectionMode.valueOf(v)
     @TypeConverter fun focusModeTo(v: io.github.sebastianyousef.heed.focus.FocusMode) = v.name
     @TypeConverter fun focusModeFrom(v: String) = io.github.sebastianyousef.heed.focus.FocusMode.valueOf(v)
     @TypeConverter fun decisionTo(v: Decision) = v.name

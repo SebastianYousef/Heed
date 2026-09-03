@@ -1,8 +1,10 @@
 <resources>
     <string name="app_name">Heed</string>
-    <string name="scroll_watcher_description">Detects doom scrolling by measuring how much
-        and how fast you scroll. This service cannot read anything on your screen — it is
-        not granted content access, so it sees only that a scroll happened and in which
-        app. Nothing leaves your phone; Heed has no internet permission.</string>
-    <string name="scroll_watcher_summary">Measures scrolling. Cannot read your screen.</string>
+    <string name="scroll_watcher_description">Spots doom scrolling so it can stop it.
+        For most apps it only measures how much and how fast you scroll and never looks at
+        your screen. For apps you specifically set to Precise, it reads the layout\'s
+        structure — the view identifiers and class names — so it can tell a discovery feed
+        from your friends\' stories. It never reads the text on your screen. Nothing leaves
+        your phone: Heed has no internet permission.</string>
+    <string name="scroll_watcher_summary">Measures scrolling. Never reads your screen\'s text.</string>
 </resources>

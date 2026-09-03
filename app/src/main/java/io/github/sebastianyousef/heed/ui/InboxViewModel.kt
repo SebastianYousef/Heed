@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -142,9 +143,60 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             .map { rules -> rules.associateBy { it.packageName } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    val surfaces: StateFlow<Map<String, List<io.github.sebastianyousef.heed.focus.LearnedSurface>>> =
+        repo.dao.observeSurfaces()
+            .map { list -> list.groupBy { it.packageName } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val _strict = MutableStateFlow(false)
+    val strict: StateFlow<Boolean> = _strict
+
     fun setFocusRule(rule: io.github.sebastianyousef.heed.focus.FocusRule) = viewModelScope.launch {
+        // Strict mode lets you tighten a rule at any time; loosening waits.
+        if (repo.strictActive()) {
+            val existing = repo.dao.focusRuleFor(rule.packageName)
+            if (existing != null && loosens(existing, rule)) return@launch
+        }
         repo.dao.upsertFocusRule(rule)
     }
+
+    private fun loosens(
+        old: io.github.sebastianyousef.heed.focus.FocusRule,
+        new: io.github.sebastianyousef.heed.focus.FocusRule,
+    ): Boolean {
+        fun limitLoosened(o: Int, n: Int) = o > 0 && (n == 0 || n > o)
+        return new.mode.ordinal < old.mode.ordinal ||
+            limitLoosened(old.dailyScrollSeconds, new.dailyScrollSeconds) ||
+            limitLoosened(old.dailyUsageSeconds, new.dailyUsageSeconds) ||
+            limitLoosened(old.dailyLaunchLimit, new.dailyLaunchLimit)
+    }
+
+    fun armSurfaceCapture() {
+        io.github.sebastianyousef.heed.focus.SurfaceCapture.arm()
+    }
+
+    fun setSurfaceBlock(surface: io.github.sebastianyousef.heed.focus.LearnedSurface, block: Boolean) =
+        viewModelScope.launch {
+            repo.dao.deleteSurface(surface.id)
+            repo.dao.insertSurface(surface.copy(id = 0, block = block))
+        }
+
+    fun deleteSurface(id: Long) = viewModelScope.launch { repo.dao.deleteSurface(id) }
+
+    fun setBedtime(enabled: Boolean, start: Int, end: Int) = viewModelScope.launch {
+        repo.settingsStore.setBedtime(enabled, start, end)
+    }
+
+    /** Locks rules for [days]. Cannot be shortened once set — that is the point. */
+    fun enableStrict(days: Int) = viewModelScope.launch {
+        val until = System.currentTimeMillis() + days * 86_400_000L
+        if (until > repo.settings.first().strictUntil) {
+            repo.settingsStore.setStrictUntil(until)
+        }
+        _strict.value = repo.strictActive()
+    }
+
+    fun refreshStrict() = viewModelScope.launch { _strict.value = repo.strictActive() }
 
     private val _usageRefreshing = MutableStateFlow(false)
     val usageRefreshing: StateFlow<Boolean> = _usageRefreshing
@@ -158,6 +210,7 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         _usageRefreshing.value = true
         try {
             io.github.sebastianyousef.heed.usage.UsageTracker(getApplication(), repo).ingest()
+            repo.seedPresetsFromHistory()
         } finally {
             _usageRefreshing.value = false
         }

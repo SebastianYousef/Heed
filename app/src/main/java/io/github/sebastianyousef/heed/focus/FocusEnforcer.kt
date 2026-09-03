@@ -19,6 +19,8 @@ class FocusEnforcer(private val data: Data) {
         suspend fun rule(pkg: String): FocusRule?
         suspend fun scrollSecondsToday(pkg: String): Int
         suspend fun usageSecondsToday(pkg: String): Int
+        suspend fun launchesToday(pkg: String): Int
+        suspend fun isBedtime(): Boolean
     }
 
     sealed interface Verdict {
@@ -30,16 +32,38 @@ class FocusEnforcer(private val data: Data) {
     /** Checked when an app comes to the foreground, before any scrolling happens. */
     suspend fun onAppOpened(pkg: String): Verdict {
         val rule = data.rule(pkg) ?: return Verdict.Allow
-        if (rule.dailyUsageSeconds <= 0) return Verdict.Allow
 
-        val used = data.usageSecondsToday(pkg)
-        if (used < rule.dailyUsageSeconds) return Verdict.Allow
+        // Bedtime covers every app that has a rule at all, so it needs no separate list.
+        if (data.isBedtime()) {
+            return Verdict.Block(
+                headline = "It's past your bedtime",
+                detail = "${rule.appLabel} is closed until morning. Alarms and calls are " +
+                    "untouched.",
+            )
+        }
 
-        return Verdict.Block(
-            headline = "${rule.appLabel} is done for today",
-            detail = "You set a limit of ${rule.dailyUsageSeconds / 60} minutes. " +
-                "You've used ${used / 60}.",
-        )
+        if (rule.dailyLaunchLimit > 0) {
+            val launches = data.launchesToday(pkg)
+            if (launches >= rule.dailyLaunchLimit) {
+                return Verdict.Block(
+                    headline = "That's ${launches} opens of ${rule.appLabel} today",
+                    detail = "You set a limit of ${rule.dailyLaunchLimit}. Twenty quick " +
+                        "checks cost less clock than one long sitting and do more damage.",
+                )
+            }
+        }
+
+        if (rule.dailyUsageSeconds > 0) {
+            val used = data.usageSecondsToday(pkg)
+            if (used >= rule.dailyUsageSeconds) {
+                return Verdict.Block(
+                    headline = "${rule.appLabel} is done for today",
+                    detail = "You set a limit of ${rule.dailyUsageSeconds / 60} minutes. " +
+                        "You've used ${used / 60}.",
+                )
+            }
+        }
+        return Verdict.Allow
     }
 
     /**
@@ -77,12 +101,18 @@ class FocusEnforcer(private val data: Data) {
     }
 
     companion object {
-        fun from(dao: HeedDao) = FocusEnforcer(object : Data {
+        fun from(
+            dao: HeedDao,
+            bedtime: suspend () -> Boolean = { false },
+        ) = FocusEnforcer(object : Data {
             override suspend fun rule(pkg: String) = dao.focusRuleFor(pkg)
             override suspend fun scrollSecondsToday(pkg: String) =
                 dao.scrollSecondsSince(pkg, startOfToday())
             override suspend fun usageSecondsToday(pkg: String) =
                 dao.usageSecondsSince(pkg, startOfToday())
+            override suspend fun launchesToday(pkg: String) =
+                dao.launchesSince(pkg, startOfToday())
+            override suspend fun isBedtime() = bedtime()
         })
 
         private fun startOfToday(): Long = Calendar.getInstance().apply {

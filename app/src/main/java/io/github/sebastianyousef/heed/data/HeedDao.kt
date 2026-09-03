@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
 import io.github.sebastianyousef.heed.focus.FocusRule
+import io.github.sebastianyousef.heed.focus.LearnedSurface
 import io.github.sebastianyousef.heed.usage.ScrollSpan
 import io.github.sebastianyousef.heed.usage.SessionRecord
 import kotlinx.coroutines.flow.Flow
@@ -271,6 +272,24 @@ interface HeedDao {
         """
     )
     suspend fun usageSecondsSince(pkg: String, since: Long): Int
+
+    // --- learned surfaces ---
+
+    @Insert
+    suspend fun insertSurface(surface: LearnedSurface): Long
+
+    @Query("SELECT * FROM learned_surfaces WHERE packageName = :pkg")
+    suspend fun surfacesFor(pkg: String): List<LearnedSurface>
+
+    @Query("SELECT * FROM learned_surfaces ORDER BY capturedAt DESC")
+    fun observeSurfaces(): Flow<List<LearnedSurface>>
+
+    @Query("DELETE FROM learned_surfaces WHERE id = :id")
+    suspend fun deleteSurface(id: Long)
+
+    /** How many times this app came to the foreground today. */
+    @Query("SELECT COUNT(*) FROM sessions WHERE packageName = :pkg AND startedAt >= :since")
+    suspend fun launchesSince(pkg: String, since: Long): Int
 
     // --- model ---
 

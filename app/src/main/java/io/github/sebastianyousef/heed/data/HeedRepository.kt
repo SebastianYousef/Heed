@@ -356,6 +356,71 @@ class HeedRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Record the screen the user just pointed at, and switch the app to precise matching —
+     * teaching Heed a screen is an unambiguous statement that behaviour alone is not
+     * distinguishing enough here.
+     */
+    suspend fun learnSurface(pkg: String, tokens: Set<String>) {
+        val existing = dao.surfacesFor(pkg)
+        dao.insertSurface(
+            io.github.sebastianyousef.heed.focus.LearnedSurface(
+                packageName = pkg,
+                label = "Screen ${existing.size + 1}",
+                fingerprint = tokens.joinToString("\n"),
+                block = true,
+                capturedAt = System.currentTimeMillis(),
+            )
+        )
+        val rule = dao.focusRuleFor(pkg)
+            ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, appLabelFor(pkg))
+        dao.upsertFocusRule(
+            rule.copy(detection = io.github.sebastianyousef.heed.focus.DetectionMode.PRECISE)
+        )
+    }
+
+    private fun appLabelFor(pkg: String) =
+        io.github.sebastianyousef.heed.capture.NotificationMapper.appLabel(context, pkg)
+
+    /**
+     * Give an app a rule only if it is one of the handful whose business is the scroll.
+     *
+     * Seeding every app buries the four that matter — the previous build put a Block rule
+     * on an authenticator because it sat near the top of an undifferentiated list, while
+     * Snapchat had no rule at all.
+     */
+    suspend fun ensurePresetFor(pkg: String, fallbackLabel: String) {
+        if (!io.github.sebastianyousef.heed.focus.KnownScrollers.isKnown(pkg)) return
+        if (dao.focusRuleFor(pkg) != null) return
+        io.github.sebastianyousef.heed.focus.KnownScrollers.presetFor(pkg, fallbackLabel)
+            ?.let { dao.upsertFocusRule(it) }
+    }
+
+    /**
+     * Give presets to known scrollers already in your history, not just ones you happen to
+     * open next. Otherwise upgrading looks like the feature does nothing.
+     */
+    suspend fun seedPresetsFromHistory() {
+        val seen = dao.allSessions(2000).map { it.packageName to it.appLabel }.distinct()
+        for ((pkg, label) in seen) ensurePresetFor(pkg, label)
+    }
+
+    /** Whether the clock is inside the user's bedtime window right now. */
+    suspend fun isBedtimeNow(): Boolean {
+        val s = settingsStore.settings.first()
+        if (!s.bedtimeEnabled) return false
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return if (s.bedtimeStart <= s.bedtimeEnd) {
+            hour in s.bedtimeStart until s.bedtimeEnd
+        } else {
+            hour >= s.bedtimeStart || hour < s.bedtimeEnd
+        }
+    }
+
+    /** Rules may be tightened at any time, but not loosened while strict mode holds. */
+    suspend fun strictActive(): Boolean =
+        settingsStore.settings.first().strictUntil > System.currentTimeMillis()
+
     // --- listener health ---
 
     private val _listenerConnected = MutableStateFlow(false)

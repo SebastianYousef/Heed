@@ -143,6 +143,35 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                 }
             }
 
+            Section("Strict mode") {
+                Text(
+                    "Locks your rules for a chosen number of days. You can still make them " +
+                        "stricter; you cannot make them looser, and you cannot cancel it " +
+                        "early. The version of you who set a rule and the version who wants " +
+                        "to break it are not the same person, and only one of them was " +
+                        "thinking clearly.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(1, 7, 30).forEach { days ->
+                        OutlinedButton(onClick = { vm.enableStrict(days) }) {
+                            Text(if (days == 1) "1 day" else "$days days")
+                        }
+                    }
+                }
+                if (settings.strictUntil > System.currentTimeMillis()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Active. Rules are locked for another " +
+                            "${(settings.strictUntil - System.currentTimeMillis()) / 86_400_000 + 1} day(s).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
             Section("Forgetting") {
                 Text(
                     "Notification text is scrubbed after ${settings.contentRetentionDays} " +

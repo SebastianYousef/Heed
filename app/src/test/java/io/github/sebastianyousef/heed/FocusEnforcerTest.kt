@@ -16,6 +16,8 @@ private class FakeData(
     override suspend fun rule(pkg: String) = rule
     override suspend fun scrollSecondsToday(pkg: String) = scrollSeconds
     override suspend fun usageSecondsToday(pkg: String) = usageSeconds
+    override suspend fun launchesToday(pkg: String) = 0
+    override suspend fun isBedtime() = false
 }
 
 private const val SNAP = "com.snapchat.android"

@@ -26,6 +26,9 @@ class HeedApplication : Application() {
             ListenerWatchdogWorker.schedule(this@HeedApplication)
             RetentionWorker.schedule(this@HeedApplication)
             UsageWorker.schedule(this@HeedApplication)
+            // Deterministic: presets should exist before any screen is opened, not as a
+            // side effect of visiting one.
+            HeedRepository.get(this@HeedApplication).seedPresetsFromHistory()
         }
     }
 }

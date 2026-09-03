@@ -8,6 +8,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import io.github.sebastianyousef.heed.focus.FocusRule
+import io.github.sebastianyousef.heed.focus.LearnedSurface
 import io.github.sebastianyousef.heed.usage.ScrollSpan
 import io.github.sebastianyousef.heed.usage.SessionRecord
 
@@ -21,8 +22,9 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         SessionRecord::class,
         ScrollSpan::class,
         FocusRule::class,
+        LearnedSurface::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -124,6 +126,31 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds launch limits, per-app detection mode, and taught screens. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN dailyLaunchLimit INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN detection TEXT NOT NULL DEFAULT 'BEHAVIOURAL'")
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN fromPreset INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS learned_surfaces (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        packageName TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        fingerprint TEXT NOT NULL,
+                        block INTEGER NOT NULL,
+                        capturedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_learned_surfaces_packageName " +
+                        "ON learned_surfaces(packageName)"
+                )
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -131,7 +158,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
     }
 }

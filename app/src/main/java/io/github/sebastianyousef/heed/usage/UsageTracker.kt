@@ -45,6 +45,7 @@ class UsageTracker(private val context: Context, private val repo: HeedRepositor
                 from = session.startedAt - ATTRIBUTION_WINDOW_MS,
                 to = session.startedAt,
             )
+            repo.ensurePresetFor(session.packageName, NotificationMapper.appLabel(context, session.packageName))
             repo.dao.insertSession(
                 session.copy(
                     appLabel = NotificationMapper.appLabel(context, session.packageName),
