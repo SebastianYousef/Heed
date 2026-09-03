@@ -205,3 +205,36 @@ class KnownSurfaceAnchorTest {
         assertEquals(2, KnownSurfaces.forPackage("com.snapchat.android").size)
     }
 }
+
+class CriticalAppsTest {
+
+    @Test
+    fun `an authenticator is never blocked, even with a block rule on it`() = runBlocking {
+        val rule = FocusRule(
+            "com.azure.authenticator", "Authenticator",
+            mode = FocusMode.BLOCK, scrollBudgetEvents = 2, dailyUsageSeconds = 1,
+        )
+        val enforcer = FocusEnforcer(Fake(rule, launches = 99, bedtime = true, usage = 99_999))
+        assertEquals(
+            FocusEnforcer.Verdict.Allow,
+            enforcer.onScroll("com.azure.authenticator", 50, 600_000),
+        )
+        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onAppOpened("com.azure.authenticator"))
+    }
+
+    @Test
+    fun `the dialler and alarms survive bedtime`() = runBlocking {
+        val rule = FocusRule("x", "X", mode = FocusMode.BLOCK)
+        val enforcer = FocusEnforcer(Fake(rule, bedtime = true))
+        listOf("com.google.android.dialer", "com.google.android.deskclock").forEach {
+            assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onAppOpened(it))
+        }
+    }
+
+    @Test
+    fun `unknown authenticators are caught by name`() {
+        assertTrue(io.github.sebastianyousef.heed.focus.CriticalApps.isProtected("se.example.bankid"))
+        assertTrue(io.github.sebastianyousef.heed.focus.CriticalApps.isProtected("com.whatever.otpapp"))
+        assertFalse(io.github.sebastianyousef.heed.focus.CriticalApps.isProtected("com.snapchat.android"))
+    }
+}

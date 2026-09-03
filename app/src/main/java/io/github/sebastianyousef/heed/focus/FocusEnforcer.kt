@@ -31,6 +31,7 @@ class FocusEnforcer(private val data: Data) {
 
     /** Checked when an app comes to the foreground, before any scrolling happens. */
     suspend fun onAppOpened(pkg: String): Verdict {
+        if (CriticalApps.isProtected(pkg)) return Verdict.Allow
         val rule = data.rule(pkg) ?: return Verdict.Allow
 
         // Bedtime covers every app that has a rule at all, so it needs no separate list.
@@ -71,6 +72,7 @@ class FocusEnforcer(private val data: Data) {
      * stretch, which is what makes BLOCK mode feel instant rather than delayed.
      */
     suspend fun onScroll(pkg: String, eventsThisBurst: Int, burstMs: Long): Verdict {
+        if (CriticalApps.isProtected(pkg)) return Verdict.Allow
         val rule = data.rule(pkg) ?: return Verdict.Allow
         if (rule.mode == FocusMode.OFF && rule.dailyScrollSeconds <= 0) return Verdict.Allow
 

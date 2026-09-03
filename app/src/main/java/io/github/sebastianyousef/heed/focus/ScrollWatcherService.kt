@@ -156,6 +156,7 @@ class ScrollWatcherService : AccessibilityService() {
         }
         if (System.currentTimeMillis() - lastBlockAt < BLOCK_COOLDOWN_MS) return
 
+        if (CriticalApps.isProtected(pkg)) return
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
             val rule = repo.dao.focusRuleFor(pkg) ?: return@launch

@@ -271,6 +271,16 @@ and were cross-checked against the list in the GPL-2.0 [Mindful](https://github.
 project. No code was taken from it; Heed is MIT (see LICENSE) and copying GPL-2.0 source
 would have forced a licence change.
 
+### Apps Heed will never block
+
+`CriticalApps` refuses to block authenticators, diallers, alarms, password managers and
+settings, whatever rule is set on them and regardless of bedtime. A focus app standing
+between you and a one-time code at 3am has stopped being useful and become a hazard, and
+the rule that does it is almost never one you meant to set — this exists because a stray
+Block rule landed on an authenticator during testing. Matching is by package and by
+keyword, because the long tail of authenticator and banking apps cannot be enumerated and
+erring the other way is much worse.
+
 ### Rules: budget the scrolling, not the app
 
 Every app in this category limits *time in an app*, which forces a choice nobody wants:
