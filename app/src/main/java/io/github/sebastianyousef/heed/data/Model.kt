@@ -201,6 +201,8 @@ data class ModelState(
 }
 
 class Converters {
+    @TypeConverter fun focusModeTo(v: io.github.sebastianyousef.heed.focus.FocusMode) = v.name
+    @TypeConverter fun focusModeFrom(v: String) = io.github.sebastianyousef.heed.focus.FocusMode.valueOf(v)
     @TypeConverter fun decisionTo(v: Decision) = v.name
     @TypeConverter fun decisionFrom(v: String) = Decision.valueOf(v)
     @TypeConverter fun pathTo(v: CapturePath) = v.name

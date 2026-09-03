@@ -29,6 +29,49 @@ object FocusOverlay {
     private val main = Handler(Looper.getMainLooper())
     private var current: View? = null
 
+    /**
+     * A hard stop. No continue button, because the point of BLOCK mode is that you
+     * already decided, calmly, that you did not want to be here — and the version of you
+     * that meets this screen is not the one who should get to overrule that.
+     */
+    fun block(service: AccessibilityService, headline: String, detail: String) {
+        main.post {
+            val wm = service.getSystemService(WindowManager::class.java) ?: return@post
+            dismiss(wm)
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+
+            val root = LinearLayout(service).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#F7101014"))
+                setPadding(72, 0, 72, 0)
+                gravity = Gravity.CENTER
+            }
+            root.addView(TextView(service).apply {
+                text = headline
+                textSize = 26f
+                setTextColor(Color.WHITE)
+            })
+            root.addView(TextView(service).apply {
+                text = detail
+                textSize = 16f
+                setTextColor(Color.parseColor("#B8C4DC"))
+                setPadding(0, 24, 0, 0)
+            })
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT,
+            )
+            runCatching { wm.addView(root, params) }.onFailure { return@post }
+            current = root
+            main.postDelayed({ dismiss(wm) }, BLOCK_VISIBLE_MS)
+        }
+    }
+
     fun show(
         service: AccessibilityService,
         packageName: String,
@@ -124,4 +167,7 @@ object FocusOverlay {
     }
 
     private const val DELAY_SECONDS = 5
+
+    /** Long enough to register why you were stopped, short enough not to trap you. */
+    private const val BLOCK_VISIBLE_MS = 3_500L
 }

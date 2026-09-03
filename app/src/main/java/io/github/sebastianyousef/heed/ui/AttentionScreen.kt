@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,7 +22,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -39,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.sebastianyousef.heed.focus.FocusMode
+import io.github.sebastianyousef.heed.focus.FocusRule
 import io.github.sebastianyousef.heed.focus.ScrollWatcherService
 import io.github.sebastianyousef.heed.usage.AttentionStat
 import io.github.sebastianyousef.heed.usage.UsageTracker
@@ -46,17 +50,23 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttentionScreen(vm: InboxViewModel, onBack: () -> Unit) {
+fun AttentionScreen(vm: InboxViewModel, onSettings: () -> Unit) {
     val context = LocalContext.current
     val stats by vm.attention.collectAsState()
+    val rules by vm.focusRules.collectAsState()
     val settings by vm.settings.collectAsState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var usageGranted by remember { mutableStateOf(UsageTracker.hasPermission(context)) }
+    var watcherEnabled by remember { mutableStateOf(ScrollWatcherService.isEnabled(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 usageGranted = UsageTracker.hasPermission(context)
+                watcherEnabled = ScrollWatcherService.isEnabled(context)
+                // Ingest on every return to this screen, including straight after the
+                // user has just granted access in Settings.
+                if (usageGranted) vm.refreshUsage()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -67,9 +77,9 @@ fun AttentionScreen(vm: InboxViewModel, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Attention") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                actions = {
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
             )
@@ -88,11 +98,11 @@ fun AttentionScreen(vm: InboxViewModel, onBack: () -> Unit) {
                             "what that interruption cost. Usage access reports only which " +
                             "app was in front and for how long.",
                         action = "Grant usage access",
-                        onClick = { context.startActivity(UsageTracker.settingsIntent()) },
+                        onClick = { context.startActivity(UsageTracker.settingsIntent(context)) },
                     )
                 }
             }
-            if (!ScrollWatcherService.connected) {
+            if (!watcherEnabled) {
                 item {
                     PermissionCard(
                         title = "Let Heed measure scrolling",
@@ -119,7 +129,9 @@ fun AttentionScreen(vm: InboxViewModel, onBack: () -> Unit) {
                             if (settings.scrollInterventionMinutes <= 0) {
                                 "Off. Heed will measure but never interrupt."
                             } else {
-                                "${settings.scrollInterventionMinutes} minutes of unbroken " +
+                                "${settings.scrollInterventionMinutes} " +
+                                    (if (settings.scrollInterventionMinutes == 1) "minute" else "minutes") +
+                                    " of unbroken " +
                                     "scrolling. Stopping to actually read something resets " +
                                     "it, so this measures the trance rather than the time."
                             },
@@ -146,7 +158,14 @@ fun AttentionScreen(vm: InboxViewModel, onBack: () -> Unit) {
                     )
                 }
             }
-            items(stats, key = { it.packageName }) { stat -> AttentionCard(stat) }
+            items(stats, key = { it.packageName }) { stat ->
+                AttentionCard(
+                    stat = stat,
+                    rule = rules[stat.packageName]
+                        ?: FocusRule(stat.packageName, stat.appLabel),
+                    onRule = vm::setFocusRule,
+                )
+            }
         }
     }
 }
@@ -170,7 +189,12 @@ private fun PermissionCard(title: String, body: String, action: String, onClick:
 }
 
 @Composable
-private fun AttentionCard(stat: AttentionStat) {
+private fun AttentionCard(
+    stat: AttentionStat,
+    rule: FocusRule,
+    onRule: (FocusRule) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row {
@@ -215,7 +239,96 @@ private fun AttentionCard(stat: AttentionStat) {
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(
+                    when {
+                        expanded -> "Hide rules"
+                        rule.mode == FocusMode.BLOCK -> "Blocked when you scroll"
+                        rule.mode == FocusMode.NUDGE -> "Nudges you"
+                        rule.dailyUsageSeconds > 0 || rule.dailyScrollSeconds > 0 -> "Limited"
+                        else -> "Set a rule"
+                    }
+                )
+            }
+
+            if (expanded) RuleEditor(rule, onRule)
         }
+    }
+}
+
+@Composable
+private fun RuleEditor(rule: FocusRule, onRule: (FocusRule) -> Unit) {
+    Column {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FocusMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = rule.mode == mode,
+                    onClick = { onRule(rule.copy(mode = mode)) },
+                    label = {
+                        Text(
+                            when (mode) {
+                                FocusMode.OFF -> "Measure"
+                                FocusMode.NUDGE -> "Nudge"
+                                FocusMode.BLOCK -> "Block"
+                            }
+                        )
+                    },
+                )
+            }
+        }
+
+        if (rule.mode == FocusMode.BLOCK) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Stops you after ${rule.scrollBudgetEvents} scrolls. Low numbers stop a " +
+                    "feed within a flick or two while leaving normal use — opening a chat, " +
+                    "reading a message — alone.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = rule.scrollBudgetEvents.toFloat(),
+                onValueChange = { onRule(rule.copy(scrollBudgetEvents = it.roundToInt())) },
+                valueRange = 1f..30f,
+                steps = 28,
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (rule.dailyScrollSeconds > 0) {
+                "${rule.dailyScrollSeconds / 60} minutes of scrolling a day. Everything " +
+                    "else in the app stays open."
+            } else {
+                "No scrolling budget."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Slider(
+            value = (rule.dailyScrollSeconds / 60).toFloat(),
+            onValueChange = { onRule(rule.copy(dailyScrollSeconds = it.roundToInt() * 60)) },
+            valueRange = 0f..60f,
+            steps = 59,
+        )
+
+        Text(
+            if (rule.dailyUsageSeconds > 0) {
+                "${rule.dailyUsageSeconds / 60} minutes in the app a day, all uses counted."
+            } else {
+                "No time limit."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Slider(
+            value = (rule.dailyUsageSeconds / 60).toFloat(),
+            onValueChange = { onRule(rule.copy(dailyUsageSeconds = it.roundToInt() * 60)) },
+            valueRange = 0f..180f,
+            steps = 35,
+        )
     }
 }
 

@@ -137,6 +137,32 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         repo.settingsStore.setOnboardingComplete(true)
     }
 
+    val focusRules: StateFlow<Map<String, io.github.sebastianyousef.heed.focus.FocusRule>> =
+        repo.dao.observeFocusRules()
+            .map { rules -> rules.associateBy { it.packageName } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun setFocusRule(rule: io.github.sebastianyousef.heed.focus.FocusRule) = viewModelScope.launch {
+        repo.dao.upsertFocusRule(rule)
+    }
+
+    private val _usageRefreshing = MutableStateFlow(false)
+    val usageRefreshing: StateFlow<Boolean> = _usageRefreshing
+
+    /**
+     * Pull in sessions right now rather than waiting for the periodic worker. Opening the
+     * screen and seeing nothing — because the schedule has not come round yet — reads as
+     * the feature being broken.
+     */
+    fun refreshUsage() = viewModelScope.launch {
+        _usageRefreshing.value = true
+        try {
+            io.github.sebastianyousef.heed.usage.UsageTracker(getApplication(), repo).ingest()
+        } finally {
+            _usageRefreshing.value = false
+        }
+    }
+
     fun setScrollIntervention(minutes: Int) = viewModelScope.launch {
         repo.settingsStore.setScrollInterventionMinutes(minutes)
     }

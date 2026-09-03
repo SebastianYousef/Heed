@@ -57,6 +57,7 @@ class ScrollWatcherService : AccessibilityService() {
                     currentPackage = pkg
                     spanStart = now
                     interventionShown = false
+                    checkOnOpen(pkg)
                 }
             }
 
@@ -86,18 +87,50 @@ class ScrollWatcherService : AccessibilityService() {
 
     private fun maybeIntervene(pkg: String, now: Long) {
         if (interventionShown) return
-        val burstMinutes = longestBurst / 60_000.0
+        if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
+
+        val burstMs = longestBurst
+        val events = scrollCount
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
-            val minutes = repo.settings.first().scrollInterventionMinutes
-            if (minutes <= 0 || burstMinutes < minutes) return@launch
-            interventionShown = true
-            FocusOverlay.show(
-                service = this@ScrollWatcherService,
-                packageName = pkg,
-                scrollingMinutes = burstMinutes.toInt(),
-                trigger = repo.lastAttributedTriggerFor(pkg),
-            )
+            val enforcer = FocusEnforcer.from(repo.dao)
+
+            when (val verdict = enforcer.onScroll(pkg, events, burstMs)) {
+                is FocusEnforcer.Verdict.Block -> {
+                    interventionShown = true
+                    lastBlockAt = System.currentTimeMillis()
+                    flush(System.currentTimeMillis())
+                    FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
+                }
+
+                is FocusEnforcer.Verdict.Nudge -> {
+                    // The global threshold still governs how long is too long; the rule
+                    // only says this app is eligible to be nudged at all.
+                    val threshold = repo.settings.first().scrollInterventionMinutes
+                    if (threshold <= 0 || verdict.minutes < threshold) return@launch
+                    interventionShown = true
+                    FocusOverlay.show(
+                        service = this@ScrollWatcherService,
+                        packageName = pkg,
+                        scrollingMinutes = verdict.minutes,
+                        trigger = repo.lastAttributedTriggerFor(pkg),
+                    )
+                }
+
+                FocusEnforcer.Verdict.Allow -> Unit
+            }
+        }
+    }
+
+    /** Daily usage limits are checked on entry, before a single scroll happens. */
+    private fun checkOnOpen(pkg: String) {
+        scope.launch {
+            val repo = HeedRepository.get(this@ScrollWatcherService)
+            val verdict = FocusEnforcer.from(repo.dao).onAppOpened(pkg)
+            if (verdict is FocusEnforcer.Verdict.Block) {
+                lastBlockAt = System.currentTimeMillis()
+                FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
+            }
         }
     }
 
@@ -137,9 +170,31 @@ class ScrollWatcherService : AccessibilityService() {
         super.onDestroy()
     }
 
+    private var lastBlockAt = 0L
+
     companion object {
+        /**
+         * Whether the user has enabled the watcher, read from the system rather than from
+         * a flag we set ourselves. The in-process flag goes stale whenever the service is
+         * restarted without the UI, which showed people a "turn this on" card for a
+         * service that was already running.
+         */
+        fun isEnabled(context: android.content.Context): Boolean {
+            val enabled = android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            ) ?: return false
+            return enabled.split(':').any {
+                android.content.ComponentName.unflattenFromString(it)?.className ==
+                    ScrollWatcherService::class.java.name
+            }
+        }
+
         /** A pause longer than this ends a scroll burst. */
         private const val BURST_GAP_MS = 3_000L
+
+        /** Never block twice in quick succession, or leaving the app becomes a fight. */
+        private const val BLOCK_COOLDOWN_MS = 15_000L
 
         @Volatile var connected = false
             private set

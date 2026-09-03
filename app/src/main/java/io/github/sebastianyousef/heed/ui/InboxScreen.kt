@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Timelapse
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,7 +57,6 @@ fun InboxScreen(
     onOpen: (Long) -> Unit,
     onSettings: () -> Unit,
     onApps: () -> Unit,
-    onAttention: () -> Unit,
 ) {
     val tab by vm.tab.collectAsState()
     val records by vm.records.collectAsState()
@@ -85,9 +83,6 @@ fun InboxScreen(
             TopAppBar(
                 title = { Text("Heed") },
                 actions = {
-                    IconButton(onClick = onAttention) {
-                        Icon(Icons.Default.Timelapse, contentDescription = "Attention")
-                    }
                     IconButton(onClick = onApps) {
                         Icon(Icons.Default.Apps, contentDescription = "Per-app rules")
                     }

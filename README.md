@@ -217,6 +217,15 @@ notification.
 Files are written to the cache directory, capped at the three most recent, and handed out
 only as a per-Intent grant through a non-exported `FileProvider`.
 
+## Two halves
+
+The app is split in two, because "what reaches me" and "where does my time go" are
+different questions and one list made both harder to think about.
+
+**Notifications** is the filter, the inbox and the digest. **Attention** is sessions,
+scrolling, and the rules about them. They share a database and feed each other — see the
+`CLICKED_THEN_SCROLLED` signal below — but they are answered separately.
+
 ## Attention: what an interruption actually costs
 
 Screen-time apps can tell you that you spent forty minutes in an app. They cannot tell
@@ -232,6 +241,29 @@ the obvious mistake in a system like this: **bait works precisely by being tappe
 the session that followed a tap turns out to be doom scrolling, the notification is
 recorded as `CLICKED_THEN_SCROLLED` and trains as a negative instead. The filtering gets
 better because the attention tracking exists.
+
+### Rules: budget the scrolling, not the app
+
+Every app in this category limits *time in an app*, which forces a choice nobody wants:
+block LinkedIn and lose your messages, or allow it and lose your evening. Heed budgets the
+scrolling separately, so you can message all day and still only get five minutes of feed.
+
+Three modes per app, plus two independent daily budgets:
+
+| Setting | Effect |
+|---|---|
+| Measure | Records, never intervenes. |
+| Nudge | Friction after the global unbroken-scroll threshold. |
+| Block | Stops you after N scroll events in one burst. Small N is effectively instant. |
+| Scrolling budget | Minutes of scrolling per day. The rest of the app stays open. |
+| Time limit | Minutes in the app per day, checked on open before you scroll at all. |
+
+**An honest limitation.** Blocking one *surface* — Snapchat's Spotlight but not its chats —
+requires reading the screen to know which surface you are on, and Heed deliberately cannot.
+`Block` with a tight scroll budget is the approximation: a feed is continuous scrolling and
+a chat list is not, so 3-5 events stops Spotlight within a flick or two while opening a
+conversation and reading it passes through. It is not surgical. Making it surgical would
+mean granting content access, which would undo the main reason to trust this app.
 
 ### Detecting the behaviour, not the screen
 

@@ -19,6 +19,15 @@
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
+    <!--
+      Must be declared even though it is granted through a special-access settings screen
+      rather than a normal permission prompt. Without the declaration the app does not
+      appear in Settings > Special app access > Usage access at all, so there is no way to
+      grant it — which is exactly the bug this fixes.
+    -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

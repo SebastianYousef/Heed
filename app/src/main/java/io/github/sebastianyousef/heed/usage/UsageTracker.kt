@@ -143,6 +143,12 @@ class UsageTracker(private val context: Context, private val repo: HeedRepositor
             return mode == AppOpsManager.MODE_ALLOWED
         }
 
-        fun settingsIntent() = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        /**
+         * Deep-links straight to Heed's own row rather than dumping the user into a list
+         * of every app on the phone to hunt through. Falls back to the plain list on
+         * devices that ignore the package uri.
+         */
+        fun settingsIntent(context: Context) = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            .setData(android.net.Uri.fromParts("package", context.packageName, null))
     }
 }

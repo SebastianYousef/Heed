@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
+import io.github.sebastianyousef.heed.focus.FocusRule
 import io.github.sebastianyousef.heed.usage.ScrollSpan
 import io.github.sebastianyousef.heed.usage.SessionRecord
 import kotlinx.coroutines.flow.Flow
@@ -239,6 +240,37 @@ interface HeedDao {
 
     @Query("DELETE FROM scroll_spans WHERE startedAt < :before")
     suspend fun deleteSpansOlderThan(before: Long): Int
+
+    // --- focus rules ---
+
+    @Upsert
+    suspend fun upsertFocusRule(rule: FocusRule)
+
+    @Query("SELECT * FROM focus_rules")
+    suspend fun allFocusRules(): List<FocusRule>
+
+    @Query("SELECT * FROM focus_rules")
+    fun observeFocusRules(): Flow<List<FocusRule>>
+
+    @Query("SELECT * FROM focus_rules WHERE packageName = :pkg")
+    suspend fun focusRuleFor(pkg: String): FocusRule?
+
+    /** Seconds of scrolling recorded for this app since a given moment. */
+    @Query(
+        """
+        SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans
+        WHERE packageName = :pkg AND startedAt >= :since
+        """
+    )
+    suspend fun scrollSecondsSince(pkg: String, since: Long): Int
+
+    @Query(
+        """
+        SELECT COALESCE(SUM(durationMs), 0) / 1000 FROM sessions
+        WHERE packageName = :pkg AND startedAt >= :since
+        """
+    )
+    suspend fun usageSecondsSince(pkg: String, since: Long): Int
 
     // --- model ---
 

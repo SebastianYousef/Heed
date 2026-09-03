@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import io.github.sebastianyousef.heed.focus.FocusRule
 import io.github.sebastianyousef.heed.usage.ScrollSpan
 import io.github.sebastianyousef.heed.usage.SessionRecord
 
@@ -19,8 +20,9 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         LiveChannelRecord::class,
         SessionRecord::class,
         ScrollSpan::class,
+        FocusRule::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -104,6 +106,24 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds per-app focus rules: what Heed may do about each app. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS focus_rules (
+                        packageName TEXT NOT NULL PRIMARY KEY,
+                        appLabel TEXT NOT NULL,
+                        mode TEXT NOT NULL DEFAULT 'OFF',
+                        scrollBudgetEvents INTEGER NOT NULL DEFAULT 4,
+                        dailyScrollSeconds INTEGER NOT NULL DEFAULT 0,
+                        dailyUsageSeconds INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -111,7 +131,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
     }
 }
