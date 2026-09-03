@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import io.github.sebastianyousef.heed.export.Redaction
 import io.github.sebastianyousef.heed.score.FeatureExtractor
 import io.github.sebastianyousef.heed.score.OnlineClassifier
 import io.github.sebastianyousef.heed.score.ScoreResult
@@ -299,9 +300,33 @@ class HeedRepository(private val context: Context) {
         dao.saveModel(snapshot)
     }
 
-    suspend fun pruneOldRecords() {
-        val days = settingsStore.settings.first().retentionDays
-        dao.deleteOlderThan(System.currentTimeMillis() - days * 86_400_000L)
+    /**
+     * Strip the text from notifications older than the content-retention window.
+     *
+     * The row stays: app, category, score, decision, your feedback and the shape of the
+     * text all survive, so history, statistics and exports keep working. What goes is the
+     * only part that is worth reading — which is the entire point.
+     *
+     * This costs the classifier nothing. Training happens at the moment you react to a
+     * notification and is folded straight into the weights, which live in their own row
+     * and are never touched here. Scrubbing the text a week later cannot untrain
+     * anything, because the text was never what the model was carrying.
+     */
+    suspend fun scrubOldContent(): Int {
+        val days = settingsStore.settings.first().contentRetentionDays
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        val stale = dao.scrubbable(cutoff)
+        val now = System.currentTimeMillis()
+        for (record in stale) {
+            dao.scrub(record.id, Redaction.encode(Redaction.shape(record.body)), now)
+        }
+        return stale.size
+    }
+
+    /** Drop rows entirely once they are past the longer record-retention window. */
+    suspend fun pruneOldRecords(): Int {
+        val days = settingsStore.settings.first().recordRetentionDays
+        return dao.deleteOlderThan(System.currentTimeMillis() - days * 86_400_000L)
     }
 
     // --- listener health ---

@@ -31,7 +31,16 @@ data class Settings(
     val quietHoursStrict: Boolean = true,
 
     val onboardingComplete: Boolean = false,
-    val retentionDays: Int = 30,
+
+    /**
+     * Days before a notification's text is scrubbed. The row survives — app, score,
+     * decision, your feedback and the shape of the text all remain — so history and
+     * statistics are intact and the model is entirely unaffected. Only the words go.
+     */
+    val contentRetentionDays: Int = 7,
+
+    /** Days before the row itself is deleted. Must be at least [contentRetentionDays]. */
+    val recordRetentionDays: Int = 90,
 )
 
 class SettingsStore(private val context: Context) {
@@ -44,7 +53,8 @@ class SettingsStore(private val context: Context) {
         val QUIET_END = intPreferencesKey("quiet_end")
         val QUIET_STRICT = booleanPreferencesKey("quiet_strict")
         val ONBOARDED = booleanPreferencesKey("onboarded")
-        val RETENTION = intPreferencesKey("retention_days")
+        val CONTENT_RETENTION = intPreferencesKey("content_retention_days")
+        val RECORD_RETENTION = intPreferencesKey("record_retention_days")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -57,7 +67,8 @@ class SettingsStore(private val context: Context) {
             quietHoursEnd = p[Keys.QUIET_END] ?: d.quietHoursEnd,
             quietHoursStrict = p[Keys.QUIET_STRICT] ?: d.quietHoursStrict,
             onboardingComplete = p[Keys.ONBOARDED] ?: d.onboardingComplete,
-            retentionDays = p[Keys.RETENTION] ?: d.retentionDays,
+            contentRetentionDays = p[Keys.CONTENT_RETENTION] ?: d.contentRetentionDays,
+            recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
         )
     }
 
@@ -69,5 +80,9 @@ class SettingsStore(private val context: Context) {
     }
     suspend fun setQuietStrict(v: Boolean) = context.dataStore.edit { it[Keys.QUIET_STRICT] = v }
     suspend fun setOnboardingComplete(v: Boolean) = context.dataStore.edit { it[Keys.ONBOARDED] = v }
-    suspend fun setRetentionDays(v: Int) = context.dataStore.edit { it[Keys.RETENTION] = v }
+    suspend fun setContentRetentionDays(v: Int) =
+        context.dataStore.edit { it[Keys.CONTENT_RETENTION] = v }
+
+    suspend fun setRecordRetentionDays(v: Int) =
+        context.dataStore.edit { it[Keys.RECORD_RETENTION] = v }
 }

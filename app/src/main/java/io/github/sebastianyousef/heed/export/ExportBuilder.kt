@@ -195,6 +195,7 @@ object ExportBuilder {
                     put("feedback", r.feedback.name)
                     // Built from rule names and the app label, never from message text.
                     put("scoreReason", r.scoreReason)
+                    put("contentScrubbedAt", r.redactedAt ?: JSONObject.NULL)
                 }
 
                 if (level == RedactionLevel.FULL) {
@@ -202,8 +203,12 @@ object ExportBuilder {
                     row.put("text", r.text ?: JSONObject.NULL)
                     row.put("bigText", r.bigText ?: JSONObject.NULL)
                     row.put("subText", r.subText ?: JSONObject.NULL)
-                } else {
-                    row.put("textShape", shapeJson(Redaction.shape(r.body)))
+                }
+                if (level != RedactionLevel.FULL || r.redactedAt != null) {
+                    // Prefer the shape recorded when the text was scrubbed; fall back to
+                    // measuring what is still here.
+                    val stored = r.textShape?.let { Redaction.decode(it) }
+                    row.put("textShape", shapeJson(stored ?: Redaction.shape(r.body)))
                 }
                 put(row)
             }

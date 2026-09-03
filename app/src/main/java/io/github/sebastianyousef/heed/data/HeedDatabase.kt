@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ModelState::class,
         LiveChannelRecord::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -49,6 +49,14 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds content scrubbing: when the text went, and what shape it had. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notifications ADD COLUMN redactedAt INTEGER")
+                db.execSQL("ALTER TABLE notifications ADD COLUMN textShape TEXT")
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -56,7 +64,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }

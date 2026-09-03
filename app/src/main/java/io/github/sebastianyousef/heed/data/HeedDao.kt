@@ -105,6 +105,28 @@ interface HeedDao {
     @Query("DELETE FROM notifications WHERE postedAt < :before")
     suspend fun deleteOlderThan(before: Long): Int
 
+    // --- retention ---
+
+    /** Rows old enough to have their text scrubbed but that still hold it. */
+    @Query("SELECT * FROM notifications WHERE redactedAt IS NULL AND postedAt < :before")
+    suspend fun scrubbable(before: Long): List<NotificationRecord>
+
+    @Query(
+        """
+        UPDATE notifications
+        SET title = NULL, text = NULL, bigText = NULL, subText = NULL,
+            textShape = :shape, redactedAt = :at
+        WHERE id = :id
+        """
+    )
+    suspend fun scrub(id: Long, shape: String, at: Long)
+
+    @Query("SELECT COUNT(*) FROM notifications WHERE redactedAt IS NOT NULL")
+    fun observeScrubbedCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM notifications WHERE redactedAt IS NULL")
+    fun observeReadableCount(): Flow<Int>
+
     // --- one-shot reads, for the data export ---
 
     @Query("SELECT * FROM notifications ORDER BY postedAt DESC LIMIT :limit")

@@ -77,6 +77,12 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     private val _exporting = MutableStateFlow(false)
     val exporting: StateFlow<Boolean> = _exporting
 
+    val scrubbedCount: StateFlow<Int> = repo.dao.observeScrubbedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val readableCount: StateFlow<Int> = repo.dao.observeReadableCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
 
@@ -122,6 +128,19 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun completeOnboarding() = viewModelScope.launch {
         repo.settingsStore.setOnboardingComplete(true)
+    }
+
+    fun setContentRetention(days: Int) = viewModelScope.launch {
+        repo.settingsStore.setContentRetentionDays(days)
+    }
+
+    fun setRecordRetention(days: Int) = viewModelScope.launch {
+        repo.settingsStore.setRecordRetentionDays(days)
+    }
+
+    fun scrubNow() = viewModelScope.launch {
+        repo.scrubOldContent()
+        repo.pruneOldRecords()
     }
 
     fun export(level: RedactionLevel) = viewModelScope.launch {

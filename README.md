@@ -132,6 +132,24 @@ Swipes are deliberately weak — people clear notifications reflexively, and tre
 as a firm opinion teaches the model the wrong thing. Our own cancels are excluded
 entirely; training on them would only teach the model to agree with itself.
 
+## Forgetting
+
+Retention runs in two stages, because "delete my history" and "stop anyone reading my
+history" are different requirements and only one of them costs you anything.
+
+After the **content window** (default 7 days) the text is scrubbed but the row remains:
+which app, when, what Heed decided, why, and what you told it. The shape of the text —
+length, word count, whether it held a link or looked like a one-time code — is recorded on
+the way out, so a scrubbed row still explains itself and still contributes to statistics
+and exports. After the longer **record window** (default 90 days) the row goes too.
+
+Neither stage costs the classifier anything, and this is by construction rather than by
+luck. Training happens the instant you react to a notification and is folded straight into
+the weights, which live in their own row. The text was never what the model was carrying —
+it was only ever evidence you might want to reread. `RetentionTest` asserts this directly:
+train a model, scrub every row it learned from, and the serialised weights must be
+byte-identical and the predictions unchanged.
+
 ## Exporting your data
 
 Settings → Export your data writes a JSON file and opens the share sheet. Three levels:

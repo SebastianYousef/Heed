@@ -45,6 +45,8 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
     val stats by vm.modelStats.collectAsState()
     val exportReady by vm.exportReady.collectAsState()
+    val scrubbed by vm.scrubbedCount.collectAsState()
+    val readable by vm.readableCount.collectAsState()
     val exporting by vm.exporting.collectAsState()
     val context = LocalContext.current
     var level by remember { mutableStateOf(RedactionLevel.REDACTED) }
@@ -139,6 +141,45 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                         onCheckedChange = { vm.setQuietStrict(it) },
                     )
                 }
+            }
+
+            Section("Forgetting") {
+                Text(
+                    "Notification text is scrubbed after ${settings.contentRetentionDays} " +
+                        "days. The row stays — which app, when, what Heed decided, what you " +
+                        "told it — so your history and statistics survive. Only the words go.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = settings.contentRetentionDays.toFloat(),
+                    onValueChange = { vm.setContentRetention(it.roundToInt()) },
+                    valueRange = 1f..30f,
+                    steps = 28,
+                )
+                Text(
+                    "Rows are deleted entirely after ${settings.recordRetentionDays} days.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = settings.recordRetentionDays.toFloat(),
+                    onValueChange = { vm.setRecordRetention(it.roundToInt()) },
+                    valueRange = 7f..365f,
+                    steps = 51,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "This costs Heed nothing it has learned. The model is trained the " +
+                        "moment you react to a notification, and those weights are stored " +
+                        "separately — the text was never what it was carrying. Scrubbing a " +
+                        "week later cannot untrain anything.\n\n" +
+                        "$readable readable · $scrubbed scrubbed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { vm.scrubNow() }) { Text("Scrub now") }
             }
 
             Section("Export your data") {

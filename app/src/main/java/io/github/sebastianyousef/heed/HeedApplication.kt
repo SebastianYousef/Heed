@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import io.github.sebastianyousef.heed.data.HeedRepository
+import io.github.sebastianyousef.heed.data.RetentionWorker
 import io.github.sebastianyousef.heed.capture.ListenerWatchdogWorker
 import io.github.sebastianyousef.heed.digest.DigestWorker
 import io.github.sebastianyousef.heed.notify.Notifier
@@ -22,6 +23,7 @@ class HeedApplication : Application() {
             val settings = HeedRepository.get(this@HeedApplication).settings.first()
             DigestWorker.schedule(this@HeedApplication, settings.digestIntervalHours)
             ListenerWatchdogWorker.schedule(this@HeedApplication)
+            RetentionWorker.schedule(this@HeedApplication)
         }
     }
 }

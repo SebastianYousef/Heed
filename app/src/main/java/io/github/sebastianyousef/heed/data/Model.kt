@@ -108,6 +108,18 @@ data class NotificationRecord(
 
     /** True once the user has laid eyes on it in the inbox. */
     val seen: Boolean = false,
+
+    /**
+     * When the text of this notification was scrubbed, or null while it is still here.
+     *
+     * Scrubbing costs the model nothing. Training happens the moment you react to a
+     * notification, and the resulting weights live in [ModelState] — a separate blob that
+     * this never touches. What is lost is only the ability to read back what was said.
+     */
+    val redactedAt: Long? = null,
+
+    /** Derived shape of the original text, kept so scrubbed rows still explain themselves. */
+    val textShape: String? = null,
 ) {
     /** All the text we classify on, concatenated. */
     val body: String

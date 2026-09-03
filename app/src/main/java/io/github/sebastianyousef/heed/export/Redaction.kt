@@ -1,6 +1,7 @@
 package io.github.sebastianyousef.heed.export
 
 import io.github.sebastianyousef.heed.score.FeatureExtractor
+import org.json.JSONObject
 
 /**
  * How much of your data an export is allowed to carry.
@@ -68,6 +69,30 @@ object Redaction {
             looksLikeOtp = FeatureExtractor.looksLikeOtp(lower),
         )
     }
+
+    /** Compact JSON, stored on the row when its text is scrubbed. */
+    fun encode(shape: TextShape): String = JSONObject().apply {
+        put("chars", shape.chars)
+        put("words", shape.words)
+        put("digitGroups", shape.digitGroups)
+        put("hasUrl", shape.hasUrl)
+        put("hasEmail", shape.hasEmail)
+        put("hasMoney", shape.hasMoney)
+        put("looksLikeOtp", shape.looksLikeOtp)
+    }.toString()
+
+    fun decode(json: String): TextShape? = runCatching {
+        val o = JSONObject(json)
+        TextShape(
+            chars = o.getInt("chars"),
+            words = o.getInt("words"),
+            digitGroups = o.getInt("digitGroups"),
+            hasUrl = o.getBoolean("hasUrl"),
+            hasEmail = o.getBoolean("hasEmail"),
+            hasMoney = o.getBoolean("hasMoney"),
+            looksLikeOtp = o.getBoolean("looksLikeOtp"),
+        )
+    }.getOrNull()
 
     /**
      * A stable, short, one-way label for a string that may itself be identifying.
