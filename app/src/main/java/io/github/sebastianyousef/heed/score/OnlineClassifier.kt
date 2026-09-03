@@ -73,6 +73,18 @@ class OnlineClassifier(
             .sortedByDescending { kotlin.math.abs(it.second) }
             .take(take)
 
+    /**
+     * The learned weight on each named structured feature. This is the interpretable part
+     * of the model — "promo_words: -0.8" says the classifier has worked out that marketing
+     * language predicts you not caring.
+     */
+    fun structuredWeights(): Map<String, Float> {
+        val offset = FeatureExtractor.TEXT_DIM + FeatureExtractor.APP_DIM
+        return FeatureExtractor.STRUCT_NAMES.withIndex().associate { (i, name) ->
+            name to weights[offset + i]
+        }
+    }
+
     fun serialize(): ByteArray {
         val buf = ByteBuffer.allocate(4 + dim * 8).order(ByteOrder.LITTLE_ENDIAN)
         buf.putInt(dim)

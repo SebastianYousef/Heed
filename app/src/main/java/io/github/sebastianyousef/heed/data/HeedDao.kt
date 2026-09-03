@@ -105,6 +105,17 @@ interface HeedDao {
     @Query("DELETE FROM notifications WHERE postedAt < :before")
     suspend fun deleteOlderThan(before: Long): Int
 
+    // --- one-shot reads, for the data export ---
+
+    @Query("SELECT * FROM notifications ORDER BY postedAt DESC LIMIT :limit")
+    suspend fun allRecords(limit: Int): List<NotificationRecord>
+
+    @Query("SELECT * FROM app_policies ORDER BY (alertedCount + suppressedCount) DESC")
+    suspend fun allPolicies(): List<AppPolicyRecord>
+
+    @Query("SELECT * FROM digests ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun allDigests(limit: Int): List<DigestRecord>
+
     // --- app policies ---
 
     @Upsert

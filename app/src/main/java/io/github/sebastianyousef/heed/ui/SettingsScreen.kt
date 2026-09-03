@@ -22,8 +22,18 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import io.github.sebastianyousef.heed.export.RedactionLevel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,6 +44,20 @@ import kotlin.math.roundToInt
 fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
     val stats by vm.modelStats.collectAsState()
+    val exportReady by vm.exportReady.collectAsState()
+    val exporting by vm.exporting.collectAsState()
+    val context = LocalContext.current
+    var level by remember { mutableStateOf(RedactionLevel.REDACTED) }
+
+    // Hand the finished file straight to the share sheet, then forget it.
+    LaunchedEffect(exportReady) {
+        exportReady?.let { (uri, exportedLevel) ->
+            context.startActivity(
+                Intent.createChooser(vm.shareIntent(uri, exportedLevel), "Send Heed export")
+            )
+            vm.exportConsumed()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -114,6 +138,63 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                         checked = settings.quietHoursStrict,
                         onCheckedChange = { vm.setQuietStrict(it) },
                     )
+                }
+            }
+
+            Section("Export your data") {
+                Text(
+                    "Writes what Heed has seen and decided to a JSON file and opens the " +
+                        "share sheet. Useful for working out why something was filtered, " +
+                        "or for handing to someone helping you tune it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RedactionLevel.entries.forEach { option ->
+                        FilterChip(
+                            selected = level == option,
+                            onClick = { level = option },
+                            label = {
+                                Text(
+                                    when (option) {
+                                        RedactionLevel.STATS_ONLY -> "Stats only"
+                                        RedactionLevel.REDACTED -> "Redacted"
+                                        RedactionLevel.FULL -> "Everything"
+                                    }
+                                )
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    when (level) {
+                        RedactionLevel.STATS_ONLY ->
+                            "Counts and distributions only. No row-level data, so nothing " +
+                                "can be traced back to a single notification."
+                        RedactionLevel.REDACTED ->
+                            "One row per notification, but every piece of text is replaced " +
+                                "by its shape — length, word count, whether it held a link " +
+                                "or a number. App names and decisions are kept so a wrong " +
+                                "call can be diagnosed; what anyone said to you is not. " +
+                                "Channel ids are hashed, since some apps put phone numbers " +
+                                "in them. Safe to send to someone else."
+                        RedactionLevel.FULL ->
+                            "Includes the full text of every notification — messages, " +
+                                "one-time codes, account details. For reading yourself. " +
+                                "Do not send this to anyone."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (level == RedactionLevel.FULL) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { vm.export(level) }, enabled = !exporting) {
+                    Text(if (exporting) "Preparing…" else "Export and share")
                 }
             }
 

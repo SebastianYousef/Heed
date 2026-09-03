@@ -132,6 +132,39 @@ Swipes are deliberately weak — people clear notifications reflexively, and tre
 as a firm opinion teaches the model the wrong thing. Our own cancels are excluded
 entirely; training on them would only teach the model to agree with itself.
 
+## Exporting your data
+
+Settings → Export your data writes a JSON file and opens the share sheet. Three levels:
+
+| Level | Contains | Safe to send to someone else |
+|---|---|---|
+| Stats only | Counts, distributions, per-app totals, learned weights. No row-level data. | Yes |
+| Redacted *(default)* | One row per notification, with all text replaced by its shape. | Yes |
+| Everything | Full notification text, including messages and one-time codes. | **No** |
+
+The redacted level keeps what is needed to explain a decision — app, category, score,
+which rule fired, the feedback you gave — and replaces the words with measurements:
+length, word count, digit groups, whether it held a link, whether it looked like a
+one-time code. Those are the same signals the classifier sees, which is why they are
+enough to work out why something was scored the way it was, and none of them can be
+inverted back into the original text.
+
+Two things that are less obvious and are handled anyway. Notification **channel ids** are
+hashed rather than exported, because a few apps mint one per conversation and embed a
+phone number or account id in it. **Digest summaries** are withheld below the full level,
+because a summary quotes the notifications it summarises. Notification keys are never
+exported at all, for the same reason as channel ids.
+
+This is enforced by test, not by intent: `ExportRedactionTest` plants a distinctive string
+in every text field, the channel id and the digest summary, then asserts none of them
+appear anywhere in the output — plus an inverse test that the full export *does* contain
+them, so the check cannot pass by emitting nothing. `ScoreReasonTest` covers the one
+field that is passed through verbatim, asserting the reason string never quotes the
+notification.
+
+Files are written to the cache directory, capped at the three most recent, and handed out
+only as a per-Intent grant through a non-exported `FileProvider`.
+
 ## Layout
 
 ```
@@ -139,6 +172,7 @@ data/       Room entities, DAO, settings, repository (owns the model + caches)
 capture/    listener service, notification mapping, hold buffer, decision engine
 score/      feature extraction, rules, online classifier, blending pipeline
 digest/     summariser interface + template implementation, WorkManager job
+export/     redaction levels, JSON document builder, share-sheet plumbing
 notify/     re-raising alerts, inline feedback action
 ui/         Compose: onboarding, inbox, detail ("why"), settings, per-app rules
 ```
@@ -158,7 +192,7 @@ Then grant notification access: Settings → Notifications → Device & app noti
 
 ## Status
 
-Built and unit-tested (24 tests); not yet run on a physical device. Worth checking first
+Built and unit-tested (36 tests); not yet run on a physical device. Worth checking first
 on hardware:
 
 - how long `cancelNotification` actually takes for an app you have *not* silenced, to see

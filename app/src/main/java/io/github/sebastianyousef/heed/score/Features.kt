@@ -62,6 +62,20 @@ object FeatureExtractor {
     private val URL = Regex("https?://|www\\.")
     private val MONEY = Regex("[€$£]\\s?\\d|\\d+\\s?(kr|sek|eur|usd|gbp)\\b", RegexOption.IGNORE_CASE)
 
+    /**
+     * Human-readable names for the structured slots, aligned to the indices in [S].
+     * Used by the data export so a learned weight can be reported as something a person
+     * can reason about rather than an offset into a float array.
+     */
+    val STRUCT_NAMES: List<String> = listOf(
+        "category:message", "category:call", "category:alarm", "category:event",
+        "category:reminder", "category:promo", "category:social", "category:email",
+        "category:service", "from_named_person", "system_importance", "group_summary",
+        "hour_sin", "hour_cos", "night", "looks_like_otp", "mentions_money",
+        "promo_words", "urgent_words", "text_length", "has_title", "has_url",
+        "app_chattiness",
+    )
+
     /** Structured slot indices, relative to [STRUCT_OFFSET]. */
     private object S {
         const val CAT_MSG = 0; const val CAT_CALL = 1; const val CAT_ALARM = 2

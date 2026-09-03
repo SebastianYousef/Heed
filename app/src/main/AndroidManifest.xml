@@ -55,5 +55,17 @@
             android:name=".notify.NotificationActionReceiver"
             android:exported="false" />
 
+        <!-- Hands a single export file to the share target the user picks, and nothing
+             else. Not exported; access is only ever a per-Intent grant. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 </manifest>

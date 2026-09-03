@@ -278,6 +278,10 @@ class HeedRepository(private val context: Context) {
         silencedCache[pkg] = silenced
     }
 
+    fun structuredWeightSnapshot(): Map<String, Float> = synchronized(classifierLock) {
+        classifier.structuredWeights()
+    }
+
     fun modelStats(): Pair<Int, Float> = synchronized(classifierLock) {
         classifier.examplesSeen to classifier.confidence()
     }

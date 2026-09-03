@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exports live in the cache dir so they are transient and unreadable by other apps
+         except through the grant handed to whatever the share sheet picks. -->
+    <cache-path name="exports" path="exports/" />
+</paths>

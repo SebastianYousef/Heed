@@ -1,6 +1,7 @@
 package io.github.sebastianyousef.heed.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +22,8 @@ import io.github.sebastianyousef.heed.data.HeedRepository
 import io.github.sebastianyousef.heed.data.NotificationRecord
 import io.github.sebastianyousef.heed.data.Settings
 import io.github.sebastianyousef.heed.digest.DigestWorker
+import io.github.sebastianyousef.heed.export.Exporter
+import io.github.sebastianyousef.heed.export.RedactionLevel
 
 enum class InboxTab(val label: String) {
     NEEDED("Needed"),
@@ -64,6 +67,15 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings: StateFlow<Settings> = repo.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Settings())
+
+    private val exporter = Exporter(app)
+
+    /** Set when an export is ready to hand to the share sheet; cleared once consumed. */
+    private val _exportReady = MutableStateFlow<Pair<Uri, RedactionLevel>?>(null)
+    val exportReady: StateFlow<Pair<Uri, RedactionLevel>?> = _exportReady
+
+    private val _exporting = MutableStateFlow(false)
+    val exporting: StateFlow<Boolean> = _exporting
 
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
@@ -111,6 +123,19 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     fun completeOnboarding() = viewModelScope.launch {
         repo.settingsStore.setOnboardingComplete(true)
     }
+
+    fun export(level: RedactionLevel) = viewModelScope.launch {
+        _exporting.value = true
+        try {
+            _exportReady.value = exporter.export(level) to level
+        } finally {
+            _exporting.value = false
+        }
+    }
+
+    fun exportConsumed() { _exportReady.value = null }
+
+    fun shareIntent(uri: Uri, level: RedactionLevel) = exporter.shareIntent(uri, level)
 
     fun forgetLiveChannel(pkg: String, channelId: String) = viewModelScope.launch {
         repo.unmarkLiveChannel(pkg, channelId)
