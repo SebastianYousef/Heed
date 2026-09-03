@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The narrowest possible accessibility service.
+
+  canRetrieveWindowContent is deliberately absent. Without it this service cannot read a
+  single word on your screen — not text fields, not messages, not passwords. Android
+  enforces that; it is not a matter of the code choosing not to look. What remains is the
+  bare fact that a scroll happened, and in which app, which is all that detecting doom
+  scrolling actually requires.
+
+  accessibilityEventTypes is likewise limited to scroll and window-change events, so the
+  service is not even woken for typing, clicks or focus changes.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="100"
+    android:description="@string/scroll_watcher_description"
+    android:summary="@string/scroll_watcher_summary" />

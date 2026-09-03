@@ -8,6 +8,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -83,6 +84,12 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     val readableCount: StateFlow<Int> = repo.dao.observeReadableCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /** The join across both halves of the app: what each app's interruptions cost you. */
+    val attention: StateFlow<List<io.github.sebastianyousef.heed.usage.AttentionStat>> =
+        combine(repo.dao.observeAll(2000), repo.dao.observeSessions(2000)) { notifications, sessions ->
+            io.github.sebastianyousef.heed.usage.AttentionStats.build(notifications, sessions)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
 
@@ -128,6 +135,10 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun completeOnboarding() = viewModelScope.launch {
         repo.settingsStore.setOnboardingComplete(true)
+    }
+
+    fun setScrollIntervention(minutes: Int) = viewModelScope.launch {
+        repo.settingsStore.setScrollInterventionMinutes(minutes)
     }
 
     fun setContentRetention(days: Int) = viewModelScope.launch {

@@ -6,6 +6,40 @@ small model that runs on the phone and learns from what you open and what you sw
 
 Nothing leaves the device.
 
+## It cannot talk to the internet
+
+Heed reads every notification you receive, watches which apps you use, and — if you turn
+it on — observes scrolling. That is a great deal of trust to ask for. What makes it
+reasonable to give is that **the app has no `INTERNET` permission**, so it cannot open a
+socket at all.
+
+This is not a promise about what the code does. Android puts a process in the `inet`
+group only when the permission is granted, so the kernel refuses the syscall. There is no
+bug, no code path and no compromised dependency that can send your data anywhere, because
+there is nothing to send it over.
+
+Because *absent by accident* is not the same as *absent by design*, the permission is
+explicitly removed with `tools:node="remove"` so manifest merging cannot reintroduce it,
+and `app/build.gradle.kts` fails the build if `INTERNET` or `ACCESS_NETWORK_STATE` ever
+appears in the merged manifest. That guard is itself verified: reintroduce the permission
+and the build stops with an error naming it.
+
+The full requested-permission list on a real install is:
+
+```
+POST_NOTIFICATIONS          raise the alerts it decides you need
+RECEIVE_BOOT_COMPLETED      resume after a reboot
+WAKE_LOCK, FOREGROUND_SERVICE   pulled in by WorkManager
+```
+
+`QUERY_ALL_PACKAGES` was dropped after testing showed a notification listener already gets
+implicit package visibility for apps that post notifications. Everything else — notification
+access, usage access, the accessibility service — is a special grant you make individually
+and can revoke individually.
+
+The one way data leaves is the export, which you trigger by hand and hand to a share
+target of your choosing.
+
 ## The constraint everything else follows from
 
 Android gives a third-party app no way to stop a notification before it makes noise.
@@ -183,6 +217,45 @@ notification.
 Files are written to the cache directory, capped at the three most recent, and handed out
 only as a per-Intent grant through a non-exported `FileProvider`.
 
+## Attention: what an interruption actually costs
+
+Screen-time apps can tell you that you spent forty minutes in an app. They cannot tell
+you *why you opened it*, because they never saw the notification. Heed saw both, so it can
+join them:
+
+> Instagram interrupted you 14 times this week. You opened 9. Those 9 became 3h 40m.
+> That is about 24 minutes of you per notification.
+
+That join is the point of putting the two halves in one app, and it closes a loop that was
+already open. Until now a tap trained the classifier as `CLICKED = relevant, +1`. That is
+the obvious mistake in a system like this: **bait works precisely by being tapped.** When
+the session that followed a tap turns out to be doom scrolling, the notification is
+recorded as `CLICKED_THEN_SCROLLED` and trains as a negative instead. The filtering gets
+better because the attention tracking exists.
+
+### Detecting the behaviour, not the screen
+
+Doom scrolling is not a place you go, it is a thing you do: long, fast, unbroken scrolling
+you did not set out to do. So Heed measures that, rather than trying to recognise
+particular feeds.
+
+The accessibility service is declared **without `canRetrieveWindowContent`**, which means
+Android will not hand it the text on your screen under any circumstances — not messages,
+not what you type, not passwords. It receives two event types, "something scrolled" and
+"the foreground window changed", and nothing else. Recognising Reels or Shorts by their
+view ids would need that content access, would break with every redesign, and would only
+ever cover apps someone remembered to list. Measuring the behaviour needs none of it and
+works in an app nobody has heard of yet.
+
+A session counts as scrolling when it clears **both** a sustained rate (25 scroll events
+per minute) and one unbroken stretch (60s). Either alone is a false positive: a high rate
+on its own is hunting through a list, and a long burst on its own is one flick down a long
+article. Pausing to read breaks the stretch, so this measures the trance, not the time.
+
+The intervention is friction, not a wall — a five-second delay and one honest sentence
+about how you got there, drawn with `TYPE_ACCESSIBILITY_OVERLAY` so it needs no
+`SYSTEM_ALERT_WINDOW` permission. Apps that hard-block get uninstalled by Friday.
+
 ## Layout
 
 ```
@@ -191,6 +264,8 @@ capture/    listener service, notification mapping, hold buffer, decision engine
 score/      feature extraction, rules, online classifier, blending pipeline
 digest/     summariser interface + template implementation, WorkManager job
 export/     redaction levels, JSON document builder, share-sheet plumbing
+usage/      foreground sessions from UsageStats, notification attribution, judging
+focus/      scroll watcher (no content access), the friction overlay
 notify/     re-raising alerts, inline feedback action
 ui/         Compose: onboarding, inbox, detail ("why"), settings, per-app rules
 ```
@@ -210,7 +285,7 @@ Then grant notification access: Settings → Notifications → Device & app noti
 
 ## Status
 
-Verified on a Pixel 10 running Android 17 (SDK 37), against real notifications:
+Verified on a Pixel 10 running GrapheneOS/Android 17 (SDK 37), against real notifications:
 
 - capture, scoring, decision and cancellation all work end to end
 - the one-time-code override fires (`Your verification code is 448210` -> score 1.0, alerted)

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import io.github.sebastianyousef.heed.data.HeedRepository
 import io.github.sebastianyousef.heed.data.RetentionWorker
+import io.github.sebastianyousef.heed.usage.UsageWorker
 import io.github.sebastianyousef.heed.capture.ListenerWatchdogWorker
 import io.github.sebastianyousef.heed.digest.DigestWorker
 import io.github.sebastianyousef.heed.notify.Notifier
@@ -24,6 +25,7 @@ class HeedApplication : Application() {
             DigestWorker.schedule(this@HeedApplication, settings.digestIntervalHours)
             ListenerWatchdogWorker.schedule(this@HeedApplication)
             RetentionWorker.schedule(this@HeedApplication)
+            UsageWorker.schedule(this@HeedApplication)
         }
     }
 }

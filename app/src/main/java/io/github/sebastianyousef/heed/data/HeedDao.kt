@@ -5,6 +5,8 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
+import io.github.sebastianyousef.heed.usage.ScrollSpan
+import io.github.sebastianyousef.heed.usage.SessionRecord
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -180,6 +182,63 @@ interface HeedDao {
 
     @Query("UPDATE digests SET delivered = 1 WHERE id = :id")
     suspend fun markDigestDelivered(id: Long)
+
+    // --- sessions ---
+
+    @Insert
+    suspend fun insertSession(session: SessionRecord): Long
+
+    @Query("SELECT * FROM sessions ORDER BY startedAt DESC LIMIT :limit")
+    fun observeSessions(limit: Int = 500): Flow<List<SessionRecord>>
+
+    @Query("SELECT * FROM sessions ORDER BY startedAt DESC LIMIT :limit")
+    suspend fun allSessions(limit: Int): List<SessionRecord>
+
+    @Query("SELECT MAX(endedAt) FROM sessions")
+    suspend fun lastSessionEnd(): Long?
+
+    @Query("SELECT * FROM sessions WHERE trainedOn = 0 AND triggerNotificationId IS NOT NULL")
+    suspend fun sessionsAwaitingTraining(): List<SessionRecord>
+
+    @Query("UPDATE sessions SET trainedOn = 1 WHERE id = :id")
+    suspend fun markSessionTrained(id: Long)
+
+    @Query("UPDATE sessions SET scrollEvents = :events, longestScrollBurstMs = :burst WHERE id = :id")
+    suspend fun attachScrolling(id: Long, events: Int, burst: Long)
+
+    /**
+     * The most recent notification from this app that the user was actually shown, within
+     * the attribution window. If a session starts just after one of those, it is a fair
+     * bet the notification is why.
+     */
+    @Query(
+        """
+        SELECT * FROM notifications
+        WHERE packageName = :pkg AND postedAt BETWEEN :from AND :to
+        ORDER BY postedAt DESC LIMIT 1
+        """
+    )
+    suspend fun attributableNotification(pkg: String, from: Long, to: Long): NotificationRecord?
+
+    @Query("SELECT COUNT(*) FROM sessions WHERE startedAt >= :since")
+    suspend fun sessionCountSince(since: Long): Int
+
+    @Query("DELETE FROM sessions WHERE startedAt < :before")
+    suspend fun deleteSessionsOlderThan(before: Long): Int
+
+    // --- scroll spans ---
+
+    @Insert
+    suspend fun insertScrollSpan(span: ScrollSpan): Long
+
+    @Query("SELECT * FROM scroll_spans WHERE consumed = 0 ORDER BY startedAt")
+    suspend fun unconsumedSpans(): List<ScrollSpan>
+
+    @Query("UPDATE scroll_spans SET consumed = 1 WHERE id IN (:ids)")
+    suspend fun consumeSpans(ids: List<Long>)
+
+    @Query("DELETE FROM scroll_spans WHERE startedAt < :before")
+    suspend fun deleteSpansOlderThan(before: Long): Int
 
     // --- model ---
 

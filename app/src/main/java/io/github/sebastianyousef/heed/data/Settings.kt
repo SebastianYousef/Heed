@@ -41,6 +41,14 @@ data class Settings(
 
     /** Days before the row itself is deleted. Must be at least [contentRetentionDays]. */
     val recordRetentionDays: Int = 90,
+
+    /**
+     * Minutes of unbroken scrolling before Heed interrupts. 0 turns it off.
+     *
+     * Unbroken is the operative word: pausing to actually read something resets it, so
+     * this measures the trance rather than the time.
+     */
+    val scrollInterventionMinutes: Int = 10,
 )
 
 class SettingsStore(private val context: Context) {
@@ -55,6 +63,7 @@ class SettingsStore(private val context: Context) {
         val ONBOARDED = booleanPreferencesKey("onboarded")
         val CONTENT_RETENTION = intPreferencesKey("content_retention_days")
         val RECORD_RETENTION = intPreferencesKey("record_retention_days")
+        val SCROLL_MINUTES = intPreferencesKey("scroll_intervention_minutes")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -69,6 +78,7 @@ class SettingsStore(private val context: Context) {
             onboardingComplete = p[Keys.ONBOARDED] ?: d.onboardingComplete,
             contentRetentionDays = p[Keys.CONTENT_RETENTION] ?: d.contentRetentionDays,
             recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
+            scrollInterventionMinutes = p[Keys.SCROLL_MINUTES] ?: d.scrollInterventionMinutes,
         )
     }
 
@@ -85,4 +95,7 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setRecordRetentionDays(v: Int) =
         context.dataStore.edit { it[Keys.RECORD_RETENTION] = v }
+
+    suspend fun setScrollInterventionMinutes(v: Int) =
+        context.dataStore.edit { it[Keys.SCROLL_MINUTES] = v }
 }

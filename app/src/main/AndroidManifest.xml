@@ -1,11 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Heed reads every notification you get, watches which apps you use, and (if you
+      enable it) observes scrolling. That is a lot of trust. The thing that makes it
+      safe to give is below: this app has no INTERNET permission, so it cannot open a
+      socket at all. That is not a promise about what the code does — Android puts a
+      process in the inet group only when the permission is granted, so the kernel
+      refuses the syscall. There is no code path, bug or dependency that can send your
+      data anywhere.
+
+      The removals are explicit rather than merely absent so that a library added later
+      cannot quietly reintroduce them through manifest merging. A Gradle task in
+      app/build.gradle.kts fails the build if INTERNET ever reappears in the merged
+      manifest, so this cannot rot.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission"
-        xmlns:tools="http://schemas.android.com/tools" />
 
     <application
         android:name=".HeedApplication"
@@ -54,6 +69,24 @@
         <receiver
             android:name=".notify.NotificationActionReceiver"
             android:exported="false" />
+
+        <!--
+          Measures scrolling in order to spot doom scrolling. Declared without
+          canRetrieveWindowContent, so Android will not hand it the text on your screen
+          under any circumstances — see res/xml/accessibility_service_config.xml.
+        -->
+        <service
+            android:name=".focus.ScrollWatcherService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <!-- Hands a single export file to the share target the user picks, and nothing
              else. Not exported; access is only ever a per-Intent grant. -->

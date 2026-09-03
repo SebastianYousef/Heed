@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import io.github.sebastianyousef.heed.usage.ScrollSpan
+import io.github.sebastianyousef.heed.usage.SessionRecord
 
 @Database(
     entities = [
@@ -15,8 +17,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DigestRecord::class,
         ModelState::class,
         LiveChannelRecord::class,
+        SessionRecord::class,
+        ScrollSpan::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -57,6 +61,49 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds foreground sessions, and their attribution back to a notification. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        packageName TEXT NOT NULL,
+                        appLabel TEXT NOT NULL,
+                        startedAt INTEGER NOT NULL,
+                        endedAt INTEGER NOT NULL,
+                        durationMs INTEGER NOT NULL,
+                        triggerNotificationId INTEGER,
+                        scrollEvents INTEGER,
+                        longestScrollBurstMs INTEGER,
+                        trainedOn INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sessions_startedAt ON sessions(startedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sessions_packageName ON sessions(packageName)")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_sessions_triggerNotificationId " +
+                        "ON sessions(triggerNotificationId)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS scroll_spans (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        packageName TEXT NOT NULL,
+                        startedAt INTEGER NOT NULL,
+                        endedAt INTEGER NOT NULL,
+                        events INTEGER NOT NULL,
+                        longestBurstMs INTEGER NOT NULL,
+                        consumed INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_scroll_spans_startedAt ON scroll_spans(startedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_scroll_spans_consumed ON scroll_spans(consumed)")
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -64,7 +111,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }

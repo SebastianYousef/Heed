@@ -247,6 +247,8 @@ class HeedRepository(private val context: Context) {
             Feedback.DISMISSED -> 0f to 0.4f       // weak: people swipe reflexively
             Feedback.MARKED_IMPORTANT -> 1f to 3f  // explicit, so it should move fast
             Feedback.MARKED_NOISE -> 0f to 3f
+            // Stronger than a reflexive swipe, weaker than you saying it outright.
+            Feedback.CLICKED_THEN_SCROLLED -> 0f to 1.5f
             Feedback.NONE -> return
         }
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
@@ -323,10 +325,35 @@ class HeedRepository(private val context: Context) {
         return stale.size
     }
 
+    /** Sessions and scroll spans follow the same record-retention window. */
+    suspend fun pruneUsageHistory() {
+        val days = settingsStore.settings.first().recordRetentionDays
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        dao.deleteSessionsOlderThan(cutoff)
+        dao.deleteSpansOlderThan(cutoff)
+    }
+
     /** Drop rows entirely once they are past the longer record-retention window. */
     suspend fun pruneOldRecords(): Int {
         val days = settingsStore.settings.first().recordRetentionDays
         return dao.deleteOlderThan(System.currentTimeMillis() - days * 86_400_000L)
+    }
+
+    /**
+     * A one-line explanation of how the user most likely got into this app, for the
+     * focus overlay. Null when there is no recent notification to blame.
+     */
+    suspend fun lastAttributedTriggerFor(pkg: String): String? {
+        val now = System.currentTimeMillis()
+        val notification = dao.attributableNotification(pkg, now - 30 * 60 * 1000L, now)
+            ?: return null
+        return when (notification.feedback) {
+            Feedback.MARKED_NOISE ->
+                "You got here from a notification you'd already marked as noise."
+            Feedback.CLICKED_THEN_SCROLLED ->
+                "You got here from a notification that did this to you last time too."
+            else -> "You got here from a ${notification.appLabel} notification."
+        }
     }
 
     // --- listener health ---

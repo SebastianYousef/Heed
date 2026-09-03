@@ -45,6 +45,16 @@ enum class Feedback {
 
     /** User pressed "noise" in the inbox. Strongest negative. */
     MARKED_NOISE,
+
+    /**
+     * Tapped, and what followed was a long scroll rather than anything purposeful.
+     *
+     * Treating a tap as approval is the obvious mistake in a system like this. Bait works
+     * precisely by getting tapped. When the session that followed was doom-scrolling, the
+     * notification did its job for the app and not for you, and the model should learn it
+     * as a negative rather than a win.
+     */
+    CLICKED_THEN_SCROLLED,
 }
 
 /** Per-app override. LEARN means the classifier decides. */

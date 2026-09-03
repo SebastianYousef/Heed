@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Heed</string>
+    <string name="scroll_watcher_description">Detects doom scrolling by measuring how much
+        and how fast you scroll. This service cannot read anything on your screen — it is
+        not granted content access, so it sees only that a scroll happened and in which
+        app. Nothing leaves your phone; Heed has no internet permission.</string>
+    <string name="scroll_watcher_summary">Measures scrolling. Cannot read your screen.</string>
 </resources>

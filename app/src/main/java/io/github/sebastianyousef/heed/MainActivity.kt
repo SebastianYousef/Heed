@@ -17,6 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import io.github.sebastianyousef.heed.ui.AppsScreen
+import io.github.sebastianyousef.heed.ui.AttentionScreen
 import io.github.sebastianyousef.heed.ui.DetailScreen
 import io.github.sebastianyousef.heed.ui.InboxScreen
 import io.github.sebastianyousef.heed.ui.InboxViewModel
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
                             onOpen = { id -> nav.navigate("detail/$id") },
                             onSettings = { nav.navigate("settings") },
                             onApps = { nav.navigate("apps") },
+                            onAttention = { nav.navigate("attention") },
                         )
                     }
                     composable(
@@ -83,6 +85,9 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(vm = vm, onBack = { nav.popBackStack() })
+                    }
+                    composable("attention") {
+                        AttentionScreen(vm = vm, onBack = { nav.popBackStack() })
                     }
                     composable("apps") {
                         AppsScreen(vm = vm, onBack = { nav.popBackStack() })

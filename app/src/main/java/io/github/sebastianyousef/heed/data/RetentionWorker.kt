@@ -28,6 +28,7 @@ class RetentionWorker(
         val repo = HeedRepository.get(applicationContext)
         repo.scrubOldContent()
         repo.pruneOldRecords()
+        repo.pruneUsageHistory()
         return Result.success()
     }
 
