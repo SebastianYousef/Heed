@@ -192,14 +192,25 @@ Then grant notification access: Settings → Notifications → Device & app noti
 
 ## Status
 
-Built and unit-tested (36 tests); not yet run on a physical device. Worth checking first
-on hardware:
+Verified on a Pixel 10 running Android 17 (SDK 37), against real notifications:
 
-- how long `cancelNotification` actually takes for an app you have *not* silenced, to see
-  how bad the fallback path feels in practice
+- capture, scoring, decision and cancellation all work end to end
+- the one-time-code override fires (`Your verification code is 448210` -> score 1.0, alerted)
+- marketing language is caught (`50 percent off ... unsubscribe` -> 0.2, filed)
+- dedupe holds: four identical reposts collapse to one row with `updateCount = 4`
+- live-display detection fires on the fifth update inside the window and clears the rows
+  it had already taken from that channel
+- a real pedometer (`org.secuso.privacyfriendlyactivitytracker`, flags
+  `NO_CLEAR|FOREGROUND_SERVICE`) is ignored entirely: zero rows, not even an app policy
+
+Still unverified, and needing a phone in hand rather than adb:
+
+- how long `cancelNotification` actually takes for an app you have *not* silenced, so how
+  bad the fallback path feels in practice
 - whether the re-raised alert's `contentIntent` reliably opens the source app — it is held
   in memory only for the length of the hold window
-- whether five updates in two minutes is the right live-display threshold for real apps
+- the export share sheet end to end (the redaction itself is covered by tests)
+- `targetSdk` is 35 while the test device runs SDK 37, so compatibility behaviours apply
 
 Known gaps, in rough priority order:
 

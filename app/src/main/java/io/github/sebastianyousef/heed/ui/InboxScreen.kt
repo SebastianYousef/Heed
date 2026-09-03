@@ -35,7 +35,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import io.github.sebastianyousef.heed.data.Decision
@@ -54,6 +63,21 @@ fun InboxScreen(
     val pending by vm.pendingCount.collectAsState()
     val connected by vm.listenerConnected.collectAsState()
 
+    // Re-checked on every resume, because the user can revoke this in Settings at any
+    // point and the app would otherwise carry on believing it can alert them.
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var canPost by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canPost = NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,6 +95,7 @@ fun InboxScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!connected) DisconnectedBanner()
+            if (!canPost) CannotPostBanner()
 
             TabRow(selectedTabIndex = tab.ordinal) {
                 InboxTab.entries.forEach { t ->
@@ -168,6 +193,42 @@ private fun NotificationCard(record: NotificationRecord, onClick: () -> Unit) {
  * The one failure this app must never hide. If Android has unbound the listener, Heed
  * is silently seeing nothing — and an empty inbox looks identical to a quiet day.
  */
+/**
+ * The mirror of [DisconnectedBanner] for the other half of the job. Heed can read your
+ * notifications without this permission but cannot raise a single one of its own, so the
+ * filtering still runs and nothing ever reaches you — a silent, total failure.
+ */
+@Composable
+private fun CannotPostBanner() {
+    val context = LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                "Heed can't alert you",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                "Notification permission is off, so nothing Heed decides is important can " +
+                    "reach you. It will keep filing everything silently until you turn it on.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            }) { Text("Turn on notifications") }
+        }
+    }
+}
+
 @Composable
 private fun DisconnectedBanner() {
     val context = LocalContext.current

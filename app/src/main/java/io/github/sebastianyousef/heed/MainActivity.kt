@@ -1,8 +1,12 @@
 package io.github.sebastianyousef.heed
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,9 +26,24 @@ import io.github.sebastianyousef.heed.ui.SettingsScreen
 
 class MainActivity : ComponentActivity() {
 
+    private val postNotifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /**
+     * Asked on every launch where it is still missing, not just during onboarding.
+     * Without it Heed reads and files notifications perfectly and then cannot raise a
+     * single one, which looks from the outside like the app doing nothing at all.
+     */
+    private fun requestPostNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (NotificationManagerCompat.from(this).areNotificationsEnabled()) return
+        postNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestPostNotificationsIfNeeded()
         setContent {
             HeedTheme {
                 val vm: InboxViewModel = viewModel()
