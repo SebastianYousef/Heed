@@ -8,19 +8,19 @@
         xmlns:tools="http://schemas.android.com/tools" />
 
     <application
-        android:name=".NotiApplication"
+        android:name=".HeedApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:icon="@drawable/ic_noti"
+        android:icon="@drawable/ic_heed"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.NotiApp">
+        android:theme="@style/Theme.Heed">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.NotiApp">
+            android:theme="@style/Theme.Heed">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -38,7 +38,7 @@
           unavailable to third-party apps regardless of device. See README.
         -->
         <service
-            android:name=".capture.NotiListenerService"
+            android:name=".capture.HeedListenerService"
             android:exported="false"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

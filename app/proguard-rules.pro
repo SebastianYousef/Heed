@@ -1,2 +1,2 @@
--keep class se.kth.notiapp.capture.NotiListenerService { *; }
+-keep class io.github.sebastianyousef.heed.capture.HeedListenerService { *; }
 

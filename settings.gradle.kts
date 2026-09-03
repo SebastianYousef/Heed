@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "notiApp"
+rootProject.name = "Heed"
 include(":app")

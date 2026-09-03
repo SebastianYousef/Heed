@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "se.kth.notiapp"
+    namespace = "io.github.sebastianyousef.heed"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "se.kth.notiapp"
+        applicationId = "io.github.sebastianyousef.heed"
         minSdk = 26          // NotificationListenerService removal-reasons + channels
         targetSdk = 35
         versionCode = 1
