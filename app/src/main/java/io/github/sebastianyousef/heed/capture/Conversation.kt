@@ -23,19 +23,23 @@ import io.github.sebastianyousef.heed.export.Redaction
 object Conversation {
 
     /**
-     * The most stable identity available, in descending order of trustworthiness.
+     * The **thread**: which conversation this arrived in.
      *
      * A shortcut id is assigned by the app itself to a conversation and survives renames,
-     * so it is preferred wherever one exists. Below that, the sender of the newest
-     * message in a MessagingStyle notification, then the conversation title, then the
-     * notification title — which for a chat app is nearly always the person or group.
+     * so it is preferred wherever one exists. Below that the conversation title, then —
+     * only for something actually flagged as a message — the notification title.
+     *
+     * The sender used to sit second in this chain, and that was the bug. For a group
+     * chat in an app that sets no shortcut id, the "conversation" resolved to whoever
+     * happened to speak last, so the flat's bin-day group had a different identity every
+     * time a different person posted in it and the model could never learn the group at
+     * all. The person is a real signal, but it is a *different* signal, and it now has
+     * its own field — see [sender].
      */
     fun identify(notification: Notification): String? {
         val extras = notification.extras ?: return null
 
         notification.shortcutId?.takeIf { it.isNotBlank() }?.let { return key("s", it) }
-
-        senderOfNewestMessage(extras)?.let { return key("p", it) }
 
         extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?.toString()?.takeIf { it.isNotBlank() }?.let { return key("c", it) }
@@ -48,6 +52,24 @@ object Conversation {
                 ?.toString()?.takeIf { it.isNotBlank() }?.let { return key("t", it) }
         }
         return null
+    }
+
+    /**
+     * The **person**: who wrote the message that just arrived.
+     *
+     * Held separately from [identify] because "which group" and "who in it" are two
+     * different questions and the answer to one does not predict the other. Your partner
+     * matters wherever they write; the bin-day group does not matter whoever writes in
+     * it. Collapsing them into one identifier — which is what Heed used to do — means
+     * the model can express one of those beliefs and never both.
+     *
+     * Null for anything that is not a message, and null for group chats in apps that do
+     * not use MessagingStyle. Null is the honest answer there, and a notification with no
+     * person scores on its content rather than being penalised for the gap.
+     */
+    fun sender(notification: Notification): String? {
+        val extras = notification.extras ?: return null
+        return senderOfNewestMessage(extras)?.let { key("m", it) }
     }
 
     /**

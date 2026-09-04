@@ -78,6 +78,10 @@ class HeedRepository(private val context: Context) {
     private val senderCache = ConcurrentHashMap<String, SenderHistory>()
     private val senderByHour = ConcurrentHashMap<String, FloatArray>()
 
+    /** The same, keyed on the person who wrote it rather than the thread it arrived in. */
+    private val personCache = ConcurrentHashMap<String, SenderHistory>()
+    private val personByHour = ConcurrentHashMap<String, FloatArray>()
+
     /** package -> notification count, feeding the "how chatty is this app" feature. */
     private val chattiness = ConcurrentHashMap<String, Int>()
     @Volatile private var chattinessMax = 1
@@ -117,29 +121,12 @@ class HeedRepository(private val context: Context) {
         }
         scope.launch {
             dao.observeConversationStats().collect { rows ->
-                senderCache.clear()
-                senderByHour.clear()
-                for ((id, group) in rows.groupBy { it.conversationId }) {
-                    val seen = group.sumOf { it.seen }
-                    val engaged = group.sumOf { it.engaged }
-                    val dismissed = group.sumOf { it.dismissed }
-                    val reacted = engaged + dismissed
-                    senderCache[id] = SenderHistory(
-                        seen = seen,
-                        // Only feedback the user actually gave counts. Notifications they
-                        // never touched say nothing either way, and treating silence as
-                        // rejection would bury every thread they simply read on the
-                        // lock screen.
-                        engagement = if (reacted == 0) 0f else engaged.toFloat() / reacted,
-                    )
-                    val buckets = FloatArray(HOUR_BUCKETS)
-                    for (row in group) {
-                        val b = row.hourBucket.coerceIn(0, HOUR_BUCKETS - 1)
-                        buckets[b] = if (row.seen == 0) 0f
-                        else row.engagedInBucket.toFloat() / row.seen
-                    }
-                    senderByHour[id] = buckets
-                }
+                fill(rows, senderCache, senderByHour)
+            }
+        }
+        scope.launch {
+            dao.observePersonStats().collect { rows ->
+                fill(rows, personCache, personByHour)
             }
         }
         scope.launch {
@@ -170,19 +157,72 @@ class HeedRepository(private val context: Context) {
      * making every caller wait on IO to find out.
      */
     /**
+     * Turn one of the history aggregates into the two caches the capture path reads.
+     *
+     * Shared by the thread aggregate and the person aggregate because the arithmetic is
+     * identical and only the key differs — writing it twice is how the two would drift
+     * apart the first time one of them was tuned.
+     */
+    private fun fill(
+        rows: List<ConversationStatRow>,
+        into: ConcurrentHashMap<String, SenderHistory>,
+        hourly: ConcurrentHashMap<String, FloatArray>,
+    ) {
+        into.clear()
+        hourly.clear()
+        for ((id, group) in rows.groupBy { it.conversationId }) {
+            val seen = group.sumOf { it.seen }
+            val engaged = group.sumOf { it.engaged }
+            val dismissed = group.sumOf { it.dismissed }
+            val reacted = engaged + dismissed
+            into[id] = SenderHistory(
+                seen = seen,
+                // Only feedback the user actually gave counts. Notifications they never
+                // touched say nothing either way, and treating silence as rejection would
+                // bury every thread they simply read on the lock screen.
+                engagement = if (reacted == 0) 0f else engaged.toFloat() / reacted,
+            )
+            val buckets = FloatArray(HOUR_BUCKETS)
+            for (row in group) {
+                val b = row.hourBucket.coerceIn(0, HOUR_BUCKETS - 1)
+                buckets[b] = if (row.seen == 0) 0f else row.engagedInBucket.toFloat() / row.seen
+            }
+            hourly[id] = buckets
+        }
+    }
+
+    /**
      * What is known about the sender of this notification, at this time of day.
      *
      * Returns [SenderHistory.UNKNOWN] for a thread never seen before, which is the honest
      * answer — a first message from someone new should be judged on its content, not
      * penalised for being unfamiliar.
      */
-    fun senderHistoryFor(record: NotificationRecord): SenderHistory {
-        val id = record.conversationId ?: return SenderHistory.UNKNOWN
-        val base = senderCache[id] ?: return SenderHistory.UNKNOWN
-        val hour = Calendar.getInstance().apply { timeInMillis = record.postedAt }
+    fun senderHistoryFor(record: NotificationRecord): SenderHistory =
+        lookup(record.conversationId, record.postedAt, senderCache, senderByHour)
+
+    /**
+     * What is known about the *person* who wrote it, at this time of day.
+     *
+     * Answered from a separate aggregate so that a thread and a person can disagree —
+     * which is the whole reason both exist. Unknown for anything that is not a message,
+     * and unknown is not a penalty: it simply leaves the decision to the content.
+     */
+    fun personHistoryFor(record: NotificationRecord): SenderHistory =
+        lookup(record.senderId, record.postedAt, personCache, personByHour)
+
+    private fun lookup(
+        id: String?,
+        postedAt: Long,
+        cache: ConcurrentHashMap<String, SenderHistory>,
+        hourly: ConcurrentHashMap<String, FloatArray>,
+    ): SenderHistory {
+        id ?: return SenderHistory.UNKNOWN
+        val base = cache[id] ?: return SenderHistory.UNKNOWN
+        val hour = Calendar.getInstance().apply { timeInMillis = postedAt }
             .get(Calendar.HOUR_OF_DAY)
         val bucket = (hour / 4).coerceIn(0, HOUR_BUCKETS - 1)
-        return base.copy(engagementAtHour = senderByHour[id]?.getOrNull(bucket) ?: 0f)
+        return base.copy(engagementAtHour = hourly[id]?.getOrNull(bucket) ?: 0f)
     }
 
     fun cachedRuleFor(pkg: String): FocusRule? = ruleCache[pkg]
@@ -224,7 +264,10 @@ class HeedRepository(private val context: Context) {
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
             .coerceIn(0f, 1f)
         return synchronized(classifierLock) {
-            pipeline.score(record, policy, chatty, effectiveThreshold(settings), senderHistoryFor(record))
+            pipeline.score(
+                record, policy, chatty, effectiveThreshold(settings),
+                senderHistoryFor(record), personHistoryFor(record),
+            )
         }
     }
 
@@ -375,7 +418,9 @@ class HeedRepository(private val context: Context) {
         }
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
             .coerceIn(0f, 1f)
-        val features = FeatureExtractor.extract(record, chatty, senderHistoryFor(record))
+        val features = FeatureExtractor.extract(
+            record, chatty, senderHistoryFor(record), personHistoryFor(record),
+        )
         val snapshot = synchronized(classifierLock) {
             classifier.train(features, label, weight)
             ModelState(
@@ -387,6 +432,19 @@ class HeedRepository(private val context: Context) {
         }
         dao.saveModel(snapshot)
     }
+
+    /**
+     * Erase one notification at the user's request.
+     *
+     * Worth being precise about what this can and cannot undo, because the difference is
+     * the difference between a promise kept and one broken. The row goes, so nothing in
+     * the app records that the notification arrived: not the inbox, not the statistics,
+     * not any future export. What cannot go is the model's memory of it — training is
+     * folded into the weights the moment feedback is given, and those weights are a blob
+     * in another table with no link back to the rows that shaped them. Deleting is honest
+     * about the record; it is not an unlearn, and the UI does not claim otherwise.
+     */
+    suspend fun forget(id: Long) = dao.deleteById(id)
 
     suspend fun setPolicy(pkg: String, label: String, policy: AppPolicy) {
         val existing = dao.policyFor(pkg)

@@ -64,22 +64,54 @@ object Grayscale {
     }.getOrDefault(false)
 
     /**
+     * Whether the filter is on because Heed put it there.
+     *
+     * On disk rather than in a field, and that is the whole point. It used to be a
+     * `@Volatile var`, which meant the answer was lost whenever the process died — and a
+     * bedtime rule holds grayscale for hours across exactly the window in which Android
+     * is most likely to kill a background service. Coming back with the flag reset to
+     * false, Heed would never release a screen it had greyed, and the phone stayed
+     * monochrome until the user found the tile themselves.
+     *
+     * SharedPreferences rather than DataStore because [apply] is called from the
+     * foreground poller on a plain thread and must answer synchronously; a suspend read
+     * on that path would mean either blocking it or racing it.
+     */
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences("heed_grayscale", Context.MODE_PRIVATE)
+
+    private fun owned(context: Context): Boolean =
+        runCatching { prefs(context).getBoolean(OWNED, false) }.getOrDefault(false)
+
+    private fun setOwned(context: Context, value: Boolean) {
+        runCatching { prefs(context).edit().putBoolean(OWNED, value).apply() }
+    }
+
+    private const val OWNED = "owned_by_heed"
+
+    /**
      * Apply a desired state, but only ever undo what we did ourselves.
      *
      * Someone who keeps their phone permanently grey for their own reasons should not
      * find it in colour because they opened LinkedIn and then closed it. Heed tracks
      * whether the filter is on because of a rule of its own, and leaves it alone
      * otherwise.
+     *
+     * The first line is the one that took a bug to find. If Heed turned the filter on and
+     * the user then turned it off by hand — the quick-settings tile, or Settings — the
+     * old code reached the end of a rule, saw `on == false`, did nothing, and left
+     * ownership claimed forever. The next time the user greyed their own screen, the next
+     * rule to end would turn *their* filter off. Ownership is a claim over a filter that
+     * is actually on, so it is released the moment the filter is not.
      */
-    @Volatile private var ownedByHeed = false
-
     @Synchronized
     fun apply(context: Context, wanted: Boolean) {
         val on = isOn(context)
+        if (!on && owned(context)) setOwned(context, false)
         when {
-            wanted && !on -> if (set(context, true)) ownedByHeed = true
-            !wanted && on && ownedByHeed -> if (set(context, false)) ownedByHeed = false
-            wanted && on -> Unit  // already grey, possibly not ours; leave the flag alone
+            wanted && !on -> if (set(context, true)) setOwned(context, true)
+            !wanted && on && owned(context) -> if (set(context, false)) setOwned(context, false)
+            wanted && on -> Unit  // already grey, possibly not ours; leave the claim alone
             else -> Unit
         }
     }
@@ -87,6 +119,10 @@ object Grayscale {
     /** Release the screen back to colour on the way out, if we were the ones holding it. */
     @Synchronized
     fun release(context: Context) {
-        if (ownedByHeed && set(context, false)) ownedByHeed = false
+        if (!isOn(context)) {
+            setOwned(context, false)
+            return
+        }
+        if (owned(context) && set(context, false)) setOwned(context, false)
     }
 }

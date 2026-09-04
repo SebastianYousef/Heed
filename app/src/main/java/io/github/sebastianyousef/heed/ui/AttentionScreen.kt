@@ -306,11 +306,13 @@ private fun WeekChart(
     val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
     val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
 
-    Row(
-        Modifier.fillMaxWidth().height(96.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
+    Box(Modifier.fillMaxWidth().height(CHART_HEIGHT)) {
+        HourGrid(peak, CHART_HEIGHT, onContainer)
+        Row(
+            Modifier.fillMaxWidth().height(CHART_HEIGHT),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
         days.forEachIndexed { index, day ->
             val selected = !range.isWeek && range.dayIndex == index
             val fraction by animateFloatAsState(
@@ -336,7 +338,8 @@ private fun WeekChart(
                     )
                 }
                 Text(
-                    initials.format(Date(day.startOfDay)),
+                    if (selected) Time.duration(day.totalMs)
+                    else initials.format(Date(day.startOfDay)),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     color = onContainer.copy(alpha = if (selected) 1f else 0.6f),
@@ -344,8 +347,15 @@ private fun WeekChart(
                 )
             }
         }
+        }
     }
 }
+
+/**
+ * Tall enough for four gridlines to be distinguishable, short enough that the app list —
+ * which is what you came to read — is still on screen underneath.
+ */
+private val CHART_HEIGHT = 104.dp
 
 /** One app: icon, name, time, and a bar showing its share of the period. */
 @Composable

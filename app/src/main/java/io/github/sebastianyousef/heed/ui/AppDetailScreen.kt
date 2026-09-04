@@ -51,6 +51,7 @@ import io.github.sebastianyousef.heed.focus.LearnedSurface
 import io.github.sebastianyousef.heed.focus.ScrollWatcherService
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -257,9 +258,80 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                         value = (rule.dailyScrollSeconds / 60).toFloat(),
                         max = 60f,
                     ) { vm.setFocusRule(rule.copy(dailyScrollSeconds = it * 60)) }
+
+                    Spacer(Modifier.height(14.dp))
+                    ScrollBreak(rule, vm)
                 }
             }
         }
+    }
+}
+
+/**
+ * Break the feed every so many posts, and make continuing a decision.
+ *
+ * This is a different lever from every other control on this screen, and the difference
+ * is worth stating rather than burying in a slider label. A limit takes the app away when
+ * it runs out; a nudge argues with you once and then gives up for the visit. This takes
+ * nothing and never gives up — it puts a seam in the feed, waits, and hands it straight
+ * back. The whole mechanism of an infinite feed is that there is no post that is the last
+ * one, so continuing is never a decision. All this has to do is manufacture the moment
+ * where it is.
+ *
+ * The honesty about detection matters here more than anywhere else on the screen. In
+ * Precise mode the seam only counts scrolls on a screen Heed recognises as a feed, so
+ * your conversations cannot trigger it. In Automatic there is no such thing as a feed —
+ * only scroll events — so it will fire in a chat too. That is a real cost and the text
+ * says so, because someone who meets an unexpected pause mid-conversation and has to
+ * guess why will turn the whole feature off.
+ */
+@Composable
+private fun ScrollBreak(rule: FocusRule, vm: InboxViewModel) {
+    Text("Break the feed", style = MaterialTheme.typography.bodyMedium)
+    Text(
+        if (rule.scrollBreakEvents > 0) {
+            "Every ${rule.scrollBreakEvents} scrolls the feed is covered for " +
+                "${rule.breakSeconds} seconds. Nothing is taken away and nothing closes — " +
+                "you tap once and carry on. It happens again after the next " +
+                "${rule.scrollBreakEvents}."
+        } else {
+            "Off. A feed has no last post, so carrying on is never a decision. This puts a " +
+                "pause in the way often enough that it becomes one."
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    LimitSlider(
+        label = if (rule.scrollBreakEvents > 0) {
+            "Every ${rule.scrollBreakEvents} scrolls"
+        } else "No break",
+        value = rule.scrollBreakEvents.toFloat(),
+        max = 120f,
+    ) { vm.setFocusRule(rule.copy(scrollBreakEvents = it)) }
+
+    if (rule.scrollBreakEvents > 0) {
+        LimitSlider(
+            label = "Pause for ${rule.breakSeconds} seconds",
+            value = rule.breakSeconds.toFloat(),
+            max = 120f,
+        ) { vm.setFocusRule(rule.copy(breakSeconds = it.coerceIn(3, 120))) }
+
+        Text(
+            if (rule.detection == DetectionMode.PRECISE) {
+                "In Precise mode this only counts scrolls on the feeds Heed knows, so your " +
+                    "chats and your friends' stories will never trigger it."
+            } else {
+                "In Automatic mode Heed cannot tell a feed from a chat, so this counts " +
+                    "every scroll in the app — including a long conversation. Switch to " +
+                    "Precise above to confine it to the feed."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (rule.detection == DetectionMode.PRECISE) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
     }
 }
 
@@ -392,9 +464,12 @@ private fun AppUsageCard(
     val opens by vm.appOpens(packageName).collectAsState(initial = emptyList())
     var showOpens by remember { mutableStateOf(false) }
 
+    var selectedDay by remember { mutableStateOf<Int?>(null) }
+
     val series = if (showOpens) opens else days
     val peak = (series.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
     val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
+    val weekday = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
     val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
     val dailyAverage = days.map { it.totalMs }.average().let { if (it.isNaN()) 0.0 else it }
 
@@ -438,57 +513,83 @@ private fun AppUsageCard(
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier.fillMaxWidth().height(84.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                series.forEach { day ->
-                    val fraction by animateFloatAsState(
-                        targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
-                        label = "appbar",
-                    )
-                    Column(
-                        Modifier.weight(1f).fillMaxHeight(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom,
-                    ) {
-                        Box(
-                            Modifier.fillMaxWidth().weight(1f),
-                            contentAlignment = Alignment.BottomCenter,
+            Box(Modifier.fillMaxWidth().height(APP_CHART_HEIGHT)) {
+                // Only for the time series. On the opens chart `totalMs` is a count, and
+                // ruling a count with hour lines would be a chart that lies quietly.
+                if (!showOpens) HourGrid(peak, APP_CHART_HEIGHT, onContainer)
+                Row(
+                    Modifier.fillMaxWidth().height(APP_CHART_HEIGHT),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    series.forEachIndexed { index, day ->
+                        val selected = selectedDay == index
+                        val fraction by animateFloatAsState(
+                            targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
+                            label = "appbar",
+                        )
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(8.dp))
+                                // Tapping the selected bar clears it, so the summary line
+                                // below can get back to the week without a second control
+                                // that exists only to undo the first.
+                                .clickable { selectedDay = if (selected) null else index },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom,
                         ) {
                             Box(
-                                Modifier
-                                    .fillMaxWidth(0.75f)
-                                    .fillMaxHeight(fraction)
-                                    .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
-                                    .background(onContainer.copy(alpha = 0.85f))
+                                Modifier.fillMaxWidth().weight(1f),
+                                contentAlignment = Alignment.BottomCenter,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(if (selected) 1f else 0.75f)
+                                        .fillMaxHeight(fraction)
+                                        .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
+                                        .background(onContainer.copy(alpha = if (selected) 1f else 0.55f))
+                                )
+                            }
+                            Text(
+                                initials.format(Date(day.startOfDay)),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = onContainer.copy(alpha = if (selected) 1f else 0.6f),
+                                modifier = Modifier.padding(top = 5.dp),
                             )
                         }
-                        Text(
-                            initials.format(Date(day.startOfDay)),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = onContainer.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(top = 5.dp),
-                        )
                     }
                 }
             }
 
             Spacer(Modifier.height(10.dp))
+            // One line that answers whichever question is being asked: the week when
+            // nothing is selected, and that day exactly when a bar is. The chart is
+            // scaled to its own peak, so without this there is no way to read a number
+            // off it at all — which was the gap.
+            val picked = selectedDay?.let { series.getOrNull(it) }
             Text(
-                if (showOpens) {
-                    "${opens.sumOf { it.totalMs }} opens this week"
-                } else {
-                    "${Time.duration(weekMs)} this week · " +
+                when {
+                    picked != null && showOpens ->
+                        "${weekday.format(Date(picked.startOfDay))}: ${picked.totalMs} opens"
+                    picked != null ->
+                        "${weekday.format(Date(picked.startOfDay))}: ${Time.duration(picked.totalMs)}"
+                    showOpens -> "${opens.sumOf { it.totalMs }} opens this week · tap a bar for one day"
+                    else -> "${Time.duration(weekMs)} this week · " +
                         "${Time.duration(dailyAverage.toLong())} a day on average"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = onContainer.copy(alpha = 0.8f),
+                fontWeight = if (picked != null) FontWeight.SemiBold else FontWeight.Normal,
+                color = onContainer.copy(alpha = 0.85f),
             )
         }
     }
 }
+
+/** Matches the week chart on the Attention screen, so the two read at the same scale. */
+private val APP_CHART_HEIGHT = 104.dp
 
 @Composable
 private fun SettingBlock(title: String, content: @Composable () -> Unit) {

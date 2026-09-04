@@ -62,11 +62,22 @@ object FeatureExtractor {
      * [OnlineClassifier.load]. Never reorder these; only ever add to the end.
      */
     const val PERSON_DIM = 512
-    const val DIM = TEXT_DIM + APP_DIM + STRUCT_DIM + PERSON_DIM
+
+    /**
+     * Who wrote it, hashed — a different question from which thread it landed in.
+     *
+     * Appended after [PERSON_DIM] for the same reason that block was appended after the
+     * ones before it: every weight learned to date keeps its index and its meaning, and
+     * [OnlineClassifier.load] grows a shorter stored vector rather than discarding it.
+     * Never reorder these; only ever add to the end.
+     */
+    const val SENDER_DIM = 512
+    const val DIM = TEXT_DIM + APP_DIM + STRUCT_DIM + PERSON_DIM + SENDER_DIM
 
     private const val APP_OFFSET = TEXT_DIM
     private const val STRUCT_OFFSET = TEXT_DIM + APP_DIM
     private const val PERSON_OFFSET = TEXT_DIM + APP_DIM + STRUCT_DIM
+    private const val SENDER_OFFSET = TEXT_DIM + APP_DIM + STRUCT_DIM + PERSON_DIM
 
     private val TOKEN_SPLIT = Regex("[^\\p{L}\\p{N}]+")
 
@@ -103,7 +114,7 @@ object FeatureExtractor {
         "hour_sin", "hour_cos", "night", "looks_like_otp", "mentions_money",
         "promo_words", "urgent_words", "text_length", "has_title", "has_url",
         "app_chattiness", "known_sender", "sender_engagement", "weekend", "working_hours",
-        "sender_at_this_hour",
+        "sender_at_this_hour", "known_person", "person_engagement", "person_at_this_hour",
     )
 
     /** Structured slot indices, relative to [STRUCT_OFFSET]. */
@@ -118,6 +129,10 @@ object FeatureExtractor {
         const val HAS_URL = 21; const val APP_CHATTINESS = 22
         const val KNOWN_SENDER = 23; const val SENDER_ENGAGEMENT = 24
         const val WEEKEND = 25; const val WORK_HOURS = 26; const val SENDER_HOUR = 27
+        // Appended into slots that were previously always zero, so no existing weight
+        // moves. STRUCT_DIM is 32; these are 28..30.
+        const val KNOWN_PERSON = 28; const val PERSON_ENGAGEMENT = 29
+        const val PERSON_HOUR = 30
     }
 
     /**
@@ -127,15 +142,19 @@ object FeatureExtractor {
     /**
      * @param appChattiness how much this app notifies relative to everything else, 0..1.
      *        Passed in rather than looked up so extraction stays pure and fast.
-     * @param sender what is known about this conversation already: how often you have
+     * @param sender what is known about this *thread* already: how often you have
      *        engaged with it, and whether you have engaged with it at this hour. The
      *        second is what separates "my partner, at any hour" from "the standup bot,
      *        which matters at nine and never at eleven at night".
+     * @param person the same, for whoever actually wrote the message. Kept apart from
+     *        [sender] because the two disagree in the case that matters most: a group
+     *        chat you mute is still the place one particular person reaches you.
      */
     fun extract(
         record: NotificationRecord,
         appChattiness: Float = 0f,
         sender: SenderHistory = SenderHistory.UNKNOWN,
+        person: SenderHistory = SenderHistory.UNKNOWN,
     ): Features {
         val idx = ArrayList<Int>(96)
         val vals = ArrayList<Float>(96)
@@ -166,6 +185,14 @@ object FeatureExtractor {
         // independently of anything about the app it arrives through.
         record.conversationId?.let {
             addSingle(idx, vals, PERSON_OFFSET + bucket(it, PERSON_DIM), 1f)
+        }
+
+        // --- person identity block ---
+        // Fires alongside the thread rather than instead of it, so the model can hold
+        // "this group is noise" and "this person is not" at the same time and let the
+        // two weights settle it between them.
+        record.senderId?.let {
+            addSingle(idx, vals, SENDER_OFFSET + bucket(it, SENDER_DIM), 1f)
         }
 
         // --- structured block ---
@@ -206,6 +233,11 @@ object FeatureExtractor {
         struct(S.KNOWN_SENDER, if (sender.seen > 0) 1f else 0f)
         struct(S.SENDER_ENGAGEMENT, sender.engagement)
         struct(S.SENDER_HOUR, sender.engagementAtHour)
+
+        // --- and who wrote it ---
+        struct(S.KNOWN_PERSON, if (person.seen > 0) 1f else 0f)
+        struct(S.PERSON_ENGAGEMENT, person.engagement)
+        struct(S.PERSON_HOUR, person.engagementAtHour)
 
         struct(S.OTP, if (looksLikeOtp(text)) 1f else 0f)
         struct(S.MONEY, if (MONEY.containsMatchIn(text)) 1f else 0f)

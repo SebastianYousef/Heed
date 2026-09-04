@@ -205,6 +205,104 @@ object FocusOverlay {
         }
     }
 
+    /**
+     * A seam in the feed: cover it, run a timer, and hand it back on a deliberate tap.
+     *
+     * This is the one interruption here that takes nothing away. It does not press Back,
+     * it does not go Home, and it does not end with the app closed — when the timer
+     * finishes you tap once and carry on exactly where you were. That restraint is what
+     * makes it usable more than once: an infinite feed's trick is that continuing is
+     * never a decision, and all this has to do is make it one.
+     *
+     * The pause is not skippable, and the button is created disabled rather than hidden
+     * so the wait is visibly finite. A countdown you can watch is a pause; a button that
+     * appears from nowhere is a puzzle.
+     *
+     * [onContinue] runs on the main thread when the user comes back through, so the
+     * caller can restart its count — without that the seam fires once and the rest of the
+     * session is uninterrupted, which is the failure mode of every "daily budget".
+     */
+    fun pause(
+        surfacer: Surfacer,
+        headline: String,
+        detail: String,
+        seconds: Int,
+        onContinue: () -> Unit,
+    ) {
+        main.post {
+            if (current != null) return@post
+            val wm = surfacer.windowManager() ?: return@post
+            val ctx = surfacer.context()
+
+            val root = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#F7101014"))
+                setPadding(72, 0, 72, 0)
+                gravity = Gravity.CENTER
+            }
+            root.addView(TextView(ctx).apply {
+                text = headline
+                textSize = 24f
+                setTextColor(Color.WHITE)
+            })
+            root.addView(TextView(ctx).apply {
+                text = detail
+                textSize = 15f
+                setTextColor(Color.parseColor("#B8C4DC"))
+                setPadding(0, 20, 0, 0)
+            })
+
+            val continueButton = Button(ctx).apply {
+                text = "Keep going ($seconds)"
+                isEnabled = false
+                alpha = 0.4f
+            }
+            root.addView(Button(ctx).apply {
+                text = "Close this app"
+                setOnClickListener {
+                    dismiss(wm)
+                    onContinue()
+                    surfacer.goHome()
+                }
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = 48 })
+
+            root.addView(continueButton, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = 16 })
+
+            // A pause that could not be drawn must not leave the caller believing one is
+            // on screen — it would wait for a continue that can never be pressed.
+            if (!add(wm, root, surfacer.overlayType())) {
+                onContinue()
+                return@post
+            }
+
+            var remaining = seconds
+            val tick = object : Runnable {
+                override fun run() {
+                    remaining--
+                    if (remaining <= 0) {
+                        continueButton.text = "Keep going"
+                        continueButton.isEnabled = true
+                        continueButton.alpha = 1f
+                        continueButton.setOnClickListener {
+                            dismiss(wm)
+                            onContinue()
+                        }
+                    } else {
+                        continueButton.text = "Keep going ($remaining)"
+                        main.postDelayed(this, 1_000)
+                    }
+                }
+            }
+            main.postDelayed(tick, 1_000)
+        }
+    }
+
     fun show(surfacer: Surfacer, scrollingMinutes: Int, trigger: String?) {
         main.post {
             if (current != null) return@post

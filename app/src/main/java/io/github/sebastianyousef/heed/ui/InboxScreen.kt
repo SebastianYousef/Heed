@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Settings
@@ -27,8 +29,10 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -96,7 +100,26 @@ fun InboxScreen(
             if (!connected) DisconnectedBanner()
             if (!canPost) CannotPostBanner()
 
-            TabRow(selectedTabIndex = tab.ordinal) {
+            // The tabs and the pager are two views of one selection, so each has to follow
+            // the other: tapping a tab animates the pager, and settling on a page selects
+            // the tab. Driving them independently is how you end up reading "Needed" over
+            // a list of filtered notifications.
+            val pagerState = rememberPagerState(
+                initialPage = tab.ordinal,
+                pageCount = { InboxTab.entries.size },
+            )
+            LaunchedEffect(pagerState) {
+                snapshotFlow { pagerState.settledPage }.collect { page ->
+                    InboxTab.entries.getOrNull(page)?.let(vm::selectTab)
+                }
+            }
+            LaunchedEffect(tab) {
+                if (pagerState.currentPage != tab.ordinal) {
+                    pagerState.animateScrollToPage(tab.ordinal)
+                }
+            }
+
+            TabRow(selectedTabIndex = pagerState.currentPage) {
                 InboxTab.entries.forEach { t ->
                     Tab(
                         selected = t == tab,
@@ -111,25 +134,32 @@ fun InboxScreen(
                 }
             }
 
-            if (records.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        when (tab) {
-                            InboxTab.NEEDED -> "Nothing has needed you yet."
-                            InboxTab.FILTERED -> "Nothing filtered yet."
-                            InboxTab.ALL -> "No notifications captured yet.\nGrant notification access in Settings."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(records, key = { it.id }) { record ->
-                        NotificationCard(record) { onOpen(record.id) }
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                // Only the settled tab has rows: the view model holds one query at a
+                // time, and re-querying three of them so a neighbouring page can be
+                // pre-rendered would cost three times the work to show a list nobody is
+                // looking at. The page being swiped towards fills in as it lands.
+                val visible = if (page == tab.ordinal) records else emptyList()
+                if (visible.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            when (InboxTab.entries[page]) {
+                                InboxTab.NEEDED -> "Nothing has needed you yet."
+                                InboxTab.FILTERED -> "Nothing filtered yet."
+                                InboxTab.ALL -> "No notifications captured yet.\nGrant notification access in Settings."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(visible, key = { it.id }) { record ->
+                            NotificationCard(record) { onOpen(record.id) }
+                        }
                     }
                 }
             }

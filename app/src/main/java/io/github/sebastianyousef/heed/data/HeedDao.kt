@@ -109,6 +109,23 @@ interface HeedDao {
     @Query("DELETE FROM notifications WHERE postedAt < :before")
     suspend fun deleteOlderThan(before: Long): Int
 
+    /**
+     * Erase one notification outright, at the user's request.
+     *
+     * Distinct from the retention scrub, which keeps the row and removes only the words.
+     * This removes the row, so the app holds no record that the notification ever
+     * arrived — which is the point when the thing you want gone is the fact of it, not
+     * just its text.
+     *
+     * What it does not do is untrain the model. Feedback is folded into the weights the
+     * moment it is given and the row was never what carried it, so deleting cannot claw
+     * that back; what it does remove is this row's contribution to a future
+     * [io.github.sebastianyousef.heed.data.HeedRepository.retrainFromHistory]. The UI
+     * says so rather than implying an erasure the app cannot perform.
+     */
+    @Query("DELETE FROM notifications WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     // --- retention ---
 
     /** Rows old enough to have their text scrubbed but that still hold it. */
@@ -164,6 +181,33 @@ interface HeedDao {
         """
     )
     fun observeConversationStats(): Flow<List<ConversationStatRow>>
+
+    /**
+     * The same history, keyed on the person rather than the thread.
+     *
+     * Deliberately a second query rather than a wider GROUP BY on both columns. The two
+     * are independent — one message contributes a row to each — and grouping on the pair
+     * would produce a cell per (thread, person, hour), which for a busy group chat is a
+     * great many rows carrying a handful of observations each. Two coarse aggregates
+     * beat one sparse one.
+     *
+     * Aliased to `conversationId` so both feed the same row type; the column it reads is
+     * `senderId`.
+     */
+    @Query(
+        """
+        SELECT senderId AS conversationId,
+               COUNT(*) AS seen,
+               SUM(CASE WHEN feedback IN ('CLICKED','MARKED_IMPORTANT') THEN 1 ELSE 0 END) AS engaged,
+               SUM(CASE WHEN feedback IN ('MARKED_NOISE','CLICKED_THEN_SCROLLED') THEN 1 ELSE 0 END) AS dismissed,
+               CAST(strftime('%H', postedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) / 4 AS hourBucket,
+               SUM(CASE WHEN feedback IN ('CLICKED','MARKED_IMPORTANT') THEN 1 ELSE 0 END) AS engagedInBucket
+        FROM notifications
+        WHERE senderId IS NOT NULL
+        GROUP BY senderId, hourBucket
+        """
+    )
+    fun observePersonStats(): Flow<List<ConversationStatRow>>
 
     // --- app policies ---
 

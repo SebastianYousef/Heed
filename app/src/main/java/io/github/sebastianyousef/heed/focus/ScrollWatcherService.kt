@@ -54,6 +54,26 @@ class ScrollWatcherService : AccessibilityService() {
     /** Whether we have already interrupted during this stretch, so we do it once. */
     private var interventionShown = false
 
+    /**
+     * Scroll events counted towards the next seam, and whether the seam is on screen.
+     *
+     * Counted separately from [scrollCount] because that one is a *burst* counter and
+     * resets after three seconds without a scroll — which is what reading a single post
+     * looks like. A seam that reset every time you stopped to read would never arrive.
+     */
+    private var eventsSinceBreak = 0
+    private var breakShowing = false
+
+    /**
+     * Whether the screen currently showing is one Heed recognises as a feed.
+     *
+     * Only ever set in Precise mode, from the same anchor matching that decides a block.
+     * It is what keeps the seam out of a conversation: in Automatic mode there is no way
+     * to know, so the seam counts every scroll in the app and the settings screen says
+     * exactly that.
+     */
+    private var onFeedSurface = false
+
     override fun onServiceConnected() {
         instance = this
         // Rules and settings are read on every scroll event; warming them here is what
@@ -164,6 +184,7 @@ class ScrollWatcherService : AccessibilityService() {
 
     private fun recordScroll(now: Long) {
         scrollCount++
+        eventsSinceBreak++
         // A burst is scrolling with no meaningful pause. Pausing to read breaks it, which
         // is exactly the distinction we care about.
         if (lastScrollAt == 0L || now - lastScrollAt > BURST_GAP_MS) {
@@ -177,14 +198,19 @@ class ScrollWatcherService : AccessibilityService() {
     }
 
     private fun maybeIntervene(pkg: String, now: Long) {
-        if (interventionShown) return
-        if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
+        // The seam is allowed to fire more than once in a visit, so it cannot sit behind
+        // `interventionShown`. What it does sit behind is its own overlay: while the
+        // pause is on screen there is nothing to decide.
+        if (breakShowing) return
 
         // The common case — this app has no rule — is a hash lookup and a return, with no
         // coroutine, no query and no allocation. That matters because this runs on every
         // scroll event, which on a fast flick is tens of times a second.
         val repo = repo ?: return
         val rule = repo.cachedRuleFor(pkg) ?: return
+
+        val spent = interventionShown || now - lastBlockAt < BLOCK_COOLDOWN_MS
+        if (spent && rule.scrollBreakEvents <= 0) return
 
         val cumulative = cumulativeScrollMs + (if (lastScrollAt > 0) now - burstStart else 0)
         val outcome = ScrollDecision.decide(
@@ -193,10 +219,36 @@ class ScrollWatcherService : AccessibilityService() {
             eventsThisBurst = scrollCount,
             cumulativeScrollMs = cumulative,
             nudgeThresholdMinutes = repo.currentSettings().scrollInterventionMinutes,
+            eventsSinceBreak = eventsSinceBreak,
+            // Automatic mode has no idea what it is looking at, and says so in the UI
+            // rather than here. Precise mode does, and this is that answer.
+            onFeed = rule.detection != DetectionMode.PRECISE || onFeedSurface,
         )
+
+        // Everything except the seam is once per visit; the seam is the exception and
+        // must not be swallowed by a nudge that already fired.
+        if (spent && outcome !is ScrollDecision.Outcome.Break) return
 
         when (outcome) {
             ScrollDecision.Outcome.Continue -> Unit
+
+            is ScrollDecision.Outcome.Break -> {
+                breakShowing = true
+                eventsSinceBreak = 0
+                FocusOverlay.pause(
+                    surfacer = surfacer,
+                    headline = "That is ${outcome.afterEvents} more posts.",
+                    detail = "Not a limit — the feed comes straight back. This is only the " +
+                        "moment to notice you are still here.",
+                    seconds = outcome.pauseSeconds,
+                ) {
+                    // Restart the count from the far side of the seam, so a long session
+                    // meets another one rather than running free after the first.
+                    breakShowing = false
+                    eventsSinceBreak = 0
+                    scrollCount = 0
+                }
+            }
 
             is ScrollDecision.Outcome.Stop -> {
                 interventionShown = true
@@ -249,6 +301,14 @@ class ScrollWatcherService : AccessibilityService() {
             }
             return
         }
+        // Never bounce out from under the seam. `bounce` dismisses whatever overlay is
+        // on screen, and the seam's flag is cleared by its own continue button — so a
+        // surface block landing on top of a pause would take the overlay away and leave
+        // `breakShowing` set for the rest of the visit, silently disabling every further
+        // intervention. This is the same shape as the bug that left `interventionShown`
+        // stuck and made blocking work exactly once per visit.
+        if (breakShowing) return
+
         val now = System.currentTimeMillis()
         // A surface block gets its own, much shorter cooldown. It used to share the
         // fifteen-second one with scroll interventions and to set `interventionShown`,
@@ -264,11 +324,21 @@ class ScrollWatcherService : AccessibilityService() {
         // the node tree, which is the whole point.
         val repo = repo ?: return
         val rule = repo.cachedRuleFor(pkg) ?: return
-        if (rule.detection != DetectionMode.PRECISE || rule.mode != FocusMode.BLOCK) return
+        if (rule.detection != DetectionMode.PRECISE) return
+
+        // Two reasons to be looking at the tree, and an app with neither is not worth a
+        // single node read. Blocking removes you from a matched feed; the seam only needs
+        // to know whether you are in one, so that it can stay out of your conversations.
+        val wantsBlock = rule.mode == FocusMode.BLOCK
+        val wantsBreak = rule.scrollBreakEvents > 0
+        if (!wantsBlock && !wantsBreak) return
 
         val anchors = KnownSurfaces.forPackage(pkg)
         val taught = repo.cachedSurfacesFor(pkg)
-        if (anchors.isEmpty() && taught.isEmpty()) return
+        if (anchors.isEmpty() && taught.isEmpty()) {
+            onFeedSurface = false
+            return
+        }
 
         // The node tree is only valid for the length of this callback, so anchors are
         // resolved here rather than handed to a coroutine to read later — a recycled node
@@ -293,16 +363,30 @@ class ScrollWatcherService : AccessibilityService() {
 
         // Fingerprinting walks up to four hundred nodes, so it only happens for apps
         // where the user has actually taught a screen and no shipped anchor matched.
-        val label = hit?.label ?: run {
-            if (taught.isEmpty()) return
-            val tokens = SurfaceCapture.fingerprint(root)
-            if (tokens.isEmpty()) return
-            if (SurfaceMatcher.match(tokens, taught.filter { !it.block }) != null) return
-            SurfaceMatcher.match(tokens, taught.filter { it.block })?.label ?: return
-        }
+        //
+        // Written as a nullable rather than as a series of early returns because the
+        // answer is now needed either way: "this is not a feed" is what releases the
+        // seam, and a function that returns instead of saying so would leave the flag
+        // stuck at whatever the last matched screen set it to.
+        val label = hit?.label ?: taughtMatch(root, taught)
+
+        onFeedSurface = label != null
+        if (label == null || !wantsBlock) return
 
         lastSurfaceBlockAt = now
         bounceOut(label, rule.appLabel)
+    }
+
+    /** A screen the user taught Heed to block, or null. An explicit allow beats a block. */
+    private fun taughtMatch(
+        root: android.view.accessibility.AccessibilityNodeInfo?,
+        taught: List<LearnedSurface>,
+    ): String? {
+        if (taught.isEmpty()) return null
+        val tokens = SurfaceCapture.fingerprint(root)
+        if (tokens.isEmpty()) return null
+        if (SurfaceMatcher.match(tokens, taught.filter { !it.block }) != null) return null
+        return SurfaceMatcher.match(tokens, taught.filter { it.block })?.label
     }
 
     /**
@@ -461,6 +545,9 @@ class ScrollWatcherService : AccessibilityService() {
         reset()
         cumulativeScrollMs = 0
         lastBudgetCheck = 0
+        eventsSinceBreak = 0
+        onFeedSurface = false
+        breakShowing = false
     }
 
     override fun onInterrupt() {

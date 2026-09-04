@@ -46,6 +46,30 @@ data class FocusRule(
     /** Scroll events tolerated before BLOCK fires. Small numbers mean "instantly". */
     val scrollBudgetEvents: Int = 4,
 
+    /**
+     * Scroll events before the feed is broken by a deliberate pause. 0 turns it off.
+     *
+     * The lever between "nudge me after ten minutes" and "stop me at the first flick".
+     * An infinite feed works by never presenting a seam — there is no post that is the
+     * last one, so there is never a moment where continuing is a decision rather than a
+     * reflex. This manufactures the seam: after this many scrolls the feed is covered,
+     * a timer runs, and getting back in costs a deliberate tap on the far side of it.
+     *
+     * Unlike [scrollBudgetEvents] this does not remove you from anything, so it repeats:
+     * pass the seam and the count starts again. A budget you can spend all of in one
+     * sitting is a budget that only ever fires once.
+     */
+    val scrollBreakEvents: Int = 0,
+
+    /**
+     * How long the seam lasts, in seconds.
+     *
+     * Long enough to be a pause rather than a stutter, short enough not to be punishment.
+     * The point is to hand the decision back to you, not to make continuing expensive —
+     * a wall you have to fight is a rule you turn off by Friday.
+     */
+    val breakSeconds: Int = 20,
+
     /** Seconds of scrolling allowed per day. 0 means unlimited. */
     val dailyScrollSeconds: Int = 0,
 
@@ -104,7 +128,8 @@ data class FocusRule(
         get() = mode == FocusMode.OFF &&
             dailyUsageSeconds <= 0 &&
             dailyLaunchLimit <= 0 &&
-            dailyScrollSeconds <= 0
+            dailyScrollSeconds <= 0 &&
+            scrollBreakEvents <= 0
 }
 
 /**

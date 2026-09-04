@@ -257,6 +257,17 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun markSeen(id: Long) = viewModelScope.launch { repo.dao.markSeen(id) }
 
+    /**
+     * Erase one notification from the app entirely.
+     *
+     * For the ones you would rather were not sitting in a list at all — a medical result,
+     * a message from a person you are not out to, a code you would rather no screenshot
+     * ever catches. The retention scrub already removes the words on a schedule, but a
+     * schedule is not much comfort in the hour after something arrives, and the fact that
+     * a notification came at all can be the sensitive part.
+     */
+    fun forget(id: Long) = viewModelScope.launch { repo.forget(id) }
+
     fun setPolicy(pkg: String, label: String, policy: AppPolicy) = viewModelScope.launch {
         repo.setPolicy(pkg, label, policy)
     }
@@ -317,7 +328,12 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         return new.mode.ordinal < old.mode.ordinal ||
             limitLoosened(old.dailyScrollSeconds, new.dailyScrollSeconds) ||
             limitLoosened(old.dailyUsageSeconds, new.dailyUsageSeconds) ||
-            limitLoosened(old.dailyLaunchLimit, new.dailyLaunchLimit)
+            limitLoosened(old.dailyLaunchLimit, new.dailyLaunchLimit) ||
+            // More posts between seams, or a shorter pause at each one, are both ways of
+            // asking for less friction — which is the thing strict mode exists to make
+            // you wait for.
+            limitLoosened(old.scrollBreakEvents, new.scrollBreakEvents) ||
+            (old.scrollBreakEvents > 0 && new.breakSeconds < old.breakSeconds)
     }
 
     fun armSurfaceCapture() {

@@ -24,7 +24,7 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         FocusRule::class,
         LearnedSurface::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -187,6 +187,29 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the person behind a message, alongside the thread it arrived in.
+         *
+         * Nullable and unbackfilled, like the sender column before it: rows captured
+         * before the upgrade simply have no person attached and contribute nothing to the
+         * new aggregate. Note that this release also changes what [conversationId] means
+         * for group chats in apps that set no shortcut id — it used to resolve to
+         * whoever spoke last and now resolves to the group. Those threads start again
+         * under a new identity; nothing learned about any other thread is affected,
+         * because the identifier for those is unchanged.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notifications ADD COLUMN senderId TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_notifications_senderId " +
+                        "ON notifications(senderId)"
+                )
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN scrollBreakEvents INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN breakSeconds INTEGER NOT NULL DEFAULT 20")
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -194,7 +217,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).build().also { instance = it }
         }
     }
 }

@@ -113,6 +113,7 @@ object NotificationMapper {
             isGroupSummary = n.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             hasPerson = hasPerson(sbn),
             conversationId = Conversation.identify(n),
+            senderId = Conversation.sender(n),
         )
     }
 

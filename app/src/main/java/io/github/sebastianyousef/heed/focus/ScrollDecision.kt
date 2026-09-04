@@ -27,6 +27,15 @@ object ScrollDecision {
         data class Nudge(val minutes: Int) : Outcome
 
         /**
+         * Put a seam in the feed: cover it, wait, and make continuing a decision.
+         *
+         * Distinct from [Stop] because nothing is taken away and you are not removed from
+         * anything — which is also why it may fire more than once in a visit, where a
+         * Stop fires once and is done.
+         */
+        data class Break(val afterEvents: Int, val pauseSeconds: Int) : Outcome
+
+        /**
          * A daily budget applies and only the database knows how much is left.
          *
          * Kept as a distinct outcome rather than resolved here so that this function
@@ -43,6 +52,14 @@ object ScrollDecision {
      *        app. Cumulative rather than unbroken because the unbroken version could not
      *        fire: it asked for ten minutes without a three-second pause, and reading a
      *        single post resets that.
+     * @param eventsSinceBreak scroll events counted towards the next seam. Separate from
+     *        [eventsThisBurst] because a break is meant to survive the pauses that
+     *        reading actually creates — a burst counter resets every time you stop for
+     *        three seconds, which in a feed is most of the time.
+     * @param onFeed whether the caller knows this scrolling to be happening in a feed.
+     *        True in Automatic mode, where nothing better is available; in Precise mode
+     *        it is the surface matcher's answer, which is what keeps the seam out of a
+     *        conversation.
      */
     fun decide(
         packageName: String,
@@ -50,13 +67,19 @@ object ScrollDecision {
         eventsThisBurst: Int,
         cumulativeScrollMs: Long,
         nudgeThresholdMinutes: Int,
+        eventsSinceBreak: Int = 0,
+        onFeed: Boolean = true,
     ): Outcome {
         // The guard lives here rather than in the caller so it cannot be left behind by a
         // future rewrite — which is exactly how it nearly was. A focus app that stands
         // between you and a one-time code has stopped being useful and started being a
         // hazard, and no rule the user can set should be able to cause that.
         if (CriticalApps.isProtected(packageName)) return Outcome.Continue
-        if (rule.mode == FocusMode.OFF && rule.dailyScrollSeconds <= 0) return Outcome.Continue
+        if (rule.mode == FocusMode.OFF && rule.dailyScrollSeconds <= 0 &&
+            rule.scrollBreakEvents <= 0
+        ) {
+            return Outcome.Continue
+        }
 
         // Behaviour cannot tell a feed from a conversation. Both are TYPE_VIEW_SCROLLED,
         // at the same rate, in the same app — so a scroll-count block in Snapchat threw
@@ -70,6 +93,20 @@ object ScrollDecision {
                 headline = "Not this one",
                 detail = "You asked Heed to stop you scrolling ${rule.appLabel}.",
             )
+        }
+
+        // The seam comes before the nudge because it is the cheaper interruption of the
+        // two: it costs a pause and hands the feed straight back, where the nudge is a
+        // full-screen argument about whether to be here at all. Firing both for the same
+        // flick would be two walls in a row.
+        //
+        // `onFeed` is the guard that keeps this out of a chat. In Precise mode it is the
+        // surface matcher's answer and this cannot fire in a conversation; in Automatic
+        // it is unconditionally true, because behaviour genuinely cannot tell the two
+        // apart — the app says so where the setting is offered rather than pretending
+        // to a precision it does not have.
+        if (rule.scrollBreakEvents > 0 && onFeed && eventsSinceBreak >= rule.scrollBreakEvents) {
+            return Outcome.Break(rule.scrollBreakEvents, rule.breakSeconds.coerceIn(3, 120))
         }
 
         if (rule.mode == FocusMode.NUDGE && nudgeThresholdMinutes > 0) {

@@ -160,10 +160,24 @@ reply to". WhatsApp is both your partner and the flat's bin-day group, and an ap
 filter cannot separate them — which is how these systems end up either interrupting for
 everything or burying the one message that mattered.
 
-So a notification carries a conversation identity: a shortcut id where the app provides
-one, otherwise the sender of the newest `MessagingStyle` message, the conversation title,
-or — only for `CATEGORY_MESSAGE` — the notification title. What is stored is a **hash,
-never the name**. It is stable, so the model can learn a thread over months; one-way, so
+So a notification carries **two** identities, because "which thread" and "who in it" are
+different questions and one field can only ever answer one of them.
+
+The thread is a shortcut id where the app provides one, otherwise the conversation title,
+otherwise — only for `CATEGORY_MESSAGE` — the notification title. The person is the sender
+of the newest `MessagingStyle` message. Both are hashed into their own block of the
+feature vector, so the model can hold "this group is noise" and "this person is not" at
+the same time and let the two weights settle it.
+
+That was a bug, not a refinement. The sender used to sit *second* in the thread's chain —
+above the conversation title — so a group chat in an app that sets no shortcut id resolved
+to whoever happened to speak last. The flat's bin-day group had a different identity every
+time a different person posted in it, so it could never be learned at all, and neither
+could the one person in it you never want to miss. `PersonFeatureTest` pins the fix: same
+group, same words, opposite labels, and the model separates them — which is only possible
+because the person carries its own weight.
+
+What is stored either way is a **hash, never the name**. It is stable, so the model can learn a thread over months; one-way, so
 the database gains no new readable record of who you talk to; and it outlives the
 retention scrub that clears the text, so what has been learned survives what can be read.
 
@@ -207,6 +221,17 @@ which app, when, what Heed decided, why, and what you told it. The shape of the 
 length, word count, whether it held a link or looked like a one-time code — is recorded on
 the way out, so a scrubbed row still explains itself and still contributes to statistics
 and exports. After the longer **record window** (default 90 days) the row goes too.
+
+Separately from the schedule, **any single notification can be erased on the spot** — the
+bin icon on its detail screen. Retention is a promise about next week, which is not much
+comfort in the hour after something arrives, and the fact that a notification came at all
+can be the sensitive part rather than its text. The row goes entirely: inbox, statistics
+and every future export.
+
+The dialog is explicit that this is not an unlearn. If you had already marked the
+notification, that lesson went into the weights when you gave it, and the weights carry no
+link back to the row that produced them. Deleting is honest about the record; claiming
+more would be the kind of privacy promise that sounds better than it holds.
 
 Neither stage costs the classifier anything, and this is by construction rather than by
 luck. Training happens the instant you react to a notification and is folded straight into
@@ -377,6 +402,18 @@ colour cue. Heed writes exactly two keys with the permission, both listed in
 Heed also only ever undoes grayscale it turned on itself, so someone who keeps their phone
 permanently grey does not find it back in colour because they opened LinkedIn.
 
+That claim needed two fixes to actually hold, both found by looking at a phone where the
+filter is toggled by hand. Ownership was a `@Volatile` field, so it was lost whenever the
+process died — and a bedtime rule holds the filter across exactly the hours in which a
+background service is most likely to be killed, which meant Heed would come back and never
+release a screen it had greyed. And ownership was never released when the *user* turned
+the filter off mid-rule: the flag stayed claimed forever, so the next time they greyed
+their own screen, the next rule to end turned it off underneath them. Ownership is now a
+claim over a filter that is actually on, kept on disk, and released the moment it is not.
+
+Heed writes the mode key only on the way *on*, never on the way off, so a monochromacy
+setting you chose yourself survives Heed using it.
+
 ### Telling one screen from another
 
 The identifiers below were read off a running device with `uiautomator`, not copied from
@@ -539,13 +576,38 @@ Three modes per app, plus two independent daily budgets:
 | Block | Stops you after N scroll events in one burst. Small N is effectively instant. |
 | Scrolling budget | Minutes of scrolling per day. The rest of the app stays open. |
 | Time limit | Minutes in the app per day, checked on open before you scroll at all. |
+| Break the feed | A pause every N scrolls. Takes nothing away, and repeats. |
 
-**An honest limitation.** Blocking one *surface* — Snapchat's Spotlight but not its chats —
-requires reading the screen to know which surface you are on, and Heed deliberately cannot.
-`Block` with a tight scroll budget is the approximation: a feed is continuous scrolling and
-a chat list is not, so 3-5 events stops Spotlight within a flick or two while opening a
-conversation and reading it passes through. It is not surgical. Making it surgical would
-mean granting content access, which would undo the main reason to trust this app.
+**The seam.** An infinite feed works by never presenting a last post, so carrying on is
+never a decision — there is no moment at which you choose to keep going, only a moment at
+which you have not stopped. Break the feed manufactures that moment: after N scrolls the
+feed is covered, a timer runs, and one deliberate tap hands it straight back. Then it
+counts again.
+
+It is the only control here that takes nothing away, which is what lets it repeat. A limit
+fires once and is spent; a nudge argues once per visit and gives up. This costs twenty
+seconds and returns you exactly where you were, so meeting it four times in a sitting is
+not a fight.
+
+In Precise mode the count only accrues on a screen recognised as a feed, so conversations
+cannot trigger it. In Automatic there is no such thing as a feed — only scroll events — so
+it fires anywhere in the app, and the settings screen says so in red rather than implying
+a precision that does not exist. A `Block` rule still wins: waiting out a pause in order to
+be removed from the screen anyway would be friction charged for nothing.
+
+**This paragraph used to say the opposite,** and it is worth leaving a marker where it
+stood. It claimed that blocking one *surface* — Snapchat's Spotlight but not its chats —
+required reading the screen and that Heed deliberately could not, so a tight scroll budget
+was the approximation. That stopped being true when precise matching was added, and the
+approximation it described is the thing that threw people out of conversations. Precise
+mode does the surgical version, on named anchors, and a scroll count may now only ever
+block in Automatic mode. Two sections of this file described a privacy boundary the code
+had already moved; the code was audited and they were not.
+
+**The limitation that is real** is which apps can be named. Precise mode works where Heed
+or the user can identify the feed, and LinkedIn — see above — has nothing that names it.
+Those apps stay on the behavioural path, where a scroll budget and a nudge are genuinely
+all that is available.
 
 ### Detecting the behaviour, not the screen
 
@@ -553,13 +615,22 @@ Doom scrolling is not a place you go, it is a thing you do: long, fast, unbroken
 you did not set out to do. So Heed measures that, rather than trying to recognise
 particular feeds.
 
-The accessibility service is declared **without `canRetrieveWindowContent`**, which means
-Android will not hand it the text on your screen under any circumstances — not messages,
-not what you type, not passwords. It receives two event types, "something scrolled" and
-"the foreground window changed", and nothing else. Recognising Reels or Shorts by their
-view ids would need that content access, would break with every redesign, and would only
-ever cover apps someone remembered to list. Measuring the behaviour needs none of it and
-works in an app nobody has heard of yet.
+The accessibility service **does** hold `canRetrieveWindowContent`, and this file claimed
+for several releases that it did not. It is the flag precise matching needs, and a false
+reassurance about a privacy boundary is worse than no claim at all — so what is true is
+stated instead, and it is narrower than "reads your screen":
+
+- Only `viewIdResourceName` and `className` are ever read from a node — the structural
+  skeleton of a layout. Grep `focus/` for `.text` and `contentDescription`: there are no
+  reads. It recognises the shape of a feed without learning a word on it.
+- The tree is only walked for apps explicitly set to Precise. Everything else uses the
+  behavioural path, which needs no content access whatsoever.
+- `AccessibilityServiceInfo.packageNames` names only apps with a rule, known scrollers and
+  the banks Heed steps aside from, so for every other app on the phone the tree is never
+  even offered.
+
+Behavioural measurement remains the default and the fallback, because it needs none of
+that and works in an app nobody has heard of yet.
 
 A session counts as scrolling when it clears **both** a sustained rate (25 scroll events
 per minute) and one unbroken stretch (60s). Either alone is a false positive: a high rate
@@ -604,6 +675,25 @@ three `GROUP BY` queries that never materialise a row in the heap.
 
 Two smaller ones: `warmCaches` was being called by three services and started a full set of
 collectors each time, and app icons were rasterised inside composition on the main thread.
+
+## Reading the numbers
+
+Two small things that decide whether the Attention screen answers a question or just
+displays one.
+
+The bar charts are scaled to their own peak, which shows the *shape* of a week — the only
+thing that tells you whether Tuesday's rule changed anything — but makes every week look
+the same height, so the chart cannot say whether four hours is a lot. Hour gridlines put
+the absolute answer back without giving up the scaling, and tapping a bar names the exact
+figure: "Tuesday: 2h 14m". On the whole-phone chart, tapping a day also re-queries the app
+list underneath it, so the chart and the list never show different things. The lines step
+to two- and four-hour intervals on a heavy week rather than turning into ruled paper, and
+they are drawn only on the time series — ruling a count of app opens with hour lines would
+be a chart that lies quietly.
+
+The inbox's three tabs — Needed, Filtered, Everything — are a pager, so they swipe. The
+tab row and the pager each follow the other, because driving them independently is how you
+end up reading "Needed" over a list of filtered notifications.
 
 ## The widget
 
@@ -698,7 +788,7 @@ Needs JDK 17–21 (not 26 — AGP rejects it) and the Android SDK.
 ```bash
 export JAVA_HOME=/path/to/jdk-21
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # 14 tests over features, rules, classifier, pipeline
+./gradlew testDebugUnitTest      # 136 tests over features, rules, classifier, pipeline, scrolling
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 

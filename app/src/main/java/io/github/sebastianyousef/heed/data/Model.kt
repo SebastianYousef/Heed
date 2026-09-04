@@ -73,6 +73,7 @@ enum class AppPolicy { LEARN, ALWAYS_ALERT, NEVER_ALERT }
         Index("postedAt"), Index("packageName"), Index("decision"), Index("sbnKey"),
         // Grouped on by the per-sender history query, which runs on every feedback change.
         Index("conversationId"),
+        Index("senderId"),
     ],
 )
 data class NotificationRecord(
@@ -119,6 +120,17 @@ data class NotificationRecord(
      * so what the model has learned about a thread outlives what anyone can read of it.
      */
     val conversationId: String? = null,
+
+    /**
+     * A one-way identifier for the *person* who wrote it, where there is one.
+     *
+     * Separate from [conversationId] on purpose. The thread and the person in it are
+     * independent predictors — a group you ignore can still contain the one person you
+     * never want to miss — and a single field can only ever carry one of those beliefs.
+     * Hashed on the same terms as the thread: never the name, stable across months, and
+     * outliving the retention scrub that clears the text.
+     */
+    val senderId: String? = null,
 
     /** 0..1, higher = more likely to matter to this user. */
     val score: Float = 0f,
