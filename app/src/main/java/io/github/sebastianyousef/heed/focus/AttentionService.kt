@@ -160,6 +160,14 @@ class AttentionService : Service() {
         // Only an app with a limit can be blocked on opening, and that is a hash lookup.
         // A focus session is the exception: it turns apps away *because* they have no
         // rule, so it cannot be gated on there being one.
+        // A finished session has to be retired by something that runs without the app
+        // being open, or the enforcement it turns on never turns back off. See
+        // [HeedRepository.retireExpiredFocus].
+        if (repo.retireExpiredFocus()) {
+            lastPackage = null
+            return
+        }
+
         val focus = repo.focusState()
         if (focus == null &&
             (rule == null ||

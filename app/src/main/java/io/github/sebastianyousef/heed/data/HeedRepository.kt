@@ -550,6 +550,7 @@ class HeedRepository(private val context: Context) {
         val cutoff = System.currentTimeMillis() - days * 86_400_000L
         dao.deleteSessionsOlderThan(cutoff)
         dao.deleteSpansOlderThan(cutoff)
+        dao.deleteFocusSessionsOlderThan(cutoff)
     }
 
     /** Drop rows entirely once they are past the longer record-retention window. */
@@ -752,6 +753,10 @@ class HeedRepository(private val context: Context) {
         settingsStore.startFocus(label, plannedMs, id, now)
         cachedSettings = settingsStore.settings.first()
         syncAttentionService()
+        io.github.sebastianyousef.heed.notify.Notifier(context).apply {
+            ensureChannels()
+            focusRunning(label, if (plannedMs > 0) now + plannedMs else null)
+        }
         return id
     }
 
@@ -785,6 +790,29 @@ class HeedRepository(private val context: Context) {
         settingsStore.clearFocus()
         cachedSettings = settingsStore.settings.first()
         syncAttentionService()
+        io.github.sebastianyousef.heed.notify.Notifier(context).cancelFocusRunning()
+    }
+
+    /**
+     * Close a session whose clock has run out, wherever we notice it.
+     *
+     * [io.github.sebastianyousef.heed.focus.FocusSession.blocks] already stops blocking on
+     * the timestamp, so nothing is being held shut in the meantime — but the *record* of a
+     * session outlives its effect, and that record is what keeps the enforcement running.
+     * While `focusStartedAt` is set, [anyRuleNeedsForeground] returns true and the
+     * accessibility service holds its package filter open to every app on the phone. Left
+     * unretired, one forty-five-minute session would put Heed permanently back to the
+     * polling rate and the unfiltered event stream the audit measured at ten times the
+     * battery — silently, and for the life of the install.
+     *
+     * So this is called from the foreground poller rather than only from the screen: a
+     * session must be able to end without the user opening the app to watch it happen.
+     */
+    suspend fun retireExpiredFocus(): Boolean {
+        val state = focusState() ?: return false
+        if (!state.expired(System.currentTimeMillis())) return false
+        endFocus(early = false)
+        return true
     }
 
     /** Turned-away apps in the running session, counted in memory and banked at the end. */

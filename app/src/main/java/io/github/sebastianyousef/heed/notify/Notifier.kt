@@ -30,6 +30,7 @@ class Notifier(private val context: Context) {
         const val CHANNEL_STATUS = "heed_status"
         private const val DIGEST_ID = 1_000_001
         private const val SCREEN_ACCESS_ID = 1_000_002
+        private const val FOCUS_ID = 1_000_003
     }
 
     private val manager = NotificationManagerCompat.from(context)
@@ -152,6 +153,54 @@ class Notifier(private val context: Context) {
         action?.let { builder.addAction(it) }
         runCatching { manager.notify(SCREEN_ACCESS_ID, builder.build()) }
     }
+
+    /**
+     * The running focus session, in the shade.
+     *
+     * A session that is invisible is a session that reads as the phone being broken. You
+     * start one, put the phone down, pick it up an hour later having forgotten, and every
+     * app you open bounces you out with no standing explanation of why. One silent row in
+     * the shade turns that from a fault into a fact.
+     *
+     * The countdown is drawn by Android, not by Heed. `setUsesChronometer` with a target
+     * timestamp means the system renders the ticking figure itself, so this is posted once
+     * when the session starts and never updated — a per-second notification update from a
+     * background service is exactly the sort of cost this app spent a release removing.
+     *
+     * Ongoing and un-dismissable, because a swipe would take away the only visible sign
+     * that apps are being blocked while leaving them blocked. Tapping it opens Heed, which
+     * is where the session can actually be ended.
+     */
+    fun focusRunning(label: String, endsAt: Long?) {
+        val open = android.app.PendingIntent.getActivity(
+            context,
+            9_200,
+            android.content.Intent(context, io.github.sebastianyousef.heed.MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            android.app.PendingIntent.FLAG_IMMUTABLE or
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val builder = NotificationCompat.Builder(context, CHANNEL_STATUS)
+            .setSmallIcon(io.github.sebastianyousef.heed.R.drawable.ic_heed)
+            .setContentTitle("$label session")
+            .setContentText(
+                if (endsAt != null) "Apps are closed until it finishes."
+                else "Apps are closed. Tap to end it when you are done."
+            )
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+        if (endsAt != null) {
+            builder.setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                .setWhen(endsAt)
+                .setShowWhen(true)
+        }
+        runCatching { manager.notify(FOCUS_ID, builder.build()) }
+    }
+
+    fun cancelFocusRunning() = manager.cancel(FOCUS_ID)
 
     /**
      * Re-raise a held notification as our own alert.
