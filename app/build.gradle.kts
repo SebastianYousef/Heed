@@ -1,8 +1,28 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+/**
+ * Release signing, from a keystore that is deliberately not in the repository.
+ *
+ * Without this a release build is unsigned and cannot be installed at all, which is why
+ * every build that ever reached the phone was a debug one — carrying the DEBUGGABLE flag,
+ * which lets anyone with adb read the app's database through `run-as`. For an app whose
+ * entire premise is that your notification history stays on the device, shipping it
+ * debuggable was the wrong default to leave in place.
+ *
+ * If keystore.properties is missing the release build simply goes unsigned rather than
+ * failing, so a clone of the repository still builds and tests.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) FileInputStream(file).use { stream -> load(stream) }
 }
 
 android {
@@ -17,8 +37,22 @@ android {
         versionName = "0.9.3"
     }
 
+    signingConfigs {
+        create("release") {
+            keystoreProperties.getProperty("storeFile")?.let {
+                storeFile = rootProject.file(it)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (keystoreProperties.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

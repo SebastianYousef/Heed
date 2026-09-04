@@ -2,6 +2,8 @@ package io.github.sebastianyousef.heed.data
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -20,18 +22,21 @@ import io.github.sebastianyousef.heed.score.SenderHistory
 /**
  * Single owner of the database, the settings and the classifier.
  *
- * Two scoring entry points on purpose:
+ * There used to be a second, non-suspending [score] variant here with a hard in-memory
+ * budget, for `NotificationAssistantService.onNotificationEnqueued` — which blocks
+ * notification delivery system-wide while it runs. That API turned out to be `@SystemApi`
+ * and unavailable to any third-party app, so the fast path had no caller and has been
+ * removed; the listener path suspends freely because by the time it runs, the moment that
+ * needed hurrying has already passed.
  *
- *  - [score] is the comfortable one. Hits the database for the app policy, suspends
- *    freely. Used by the listener path, where we are already too late to matter.
- *  - [scoreFast] never suspends and never touches disk, reading only the warm caches.
- *    NotificationAssistantService.onNotificationEnqueued blocks notification delivery
- *    system-wide while it runs and the framework will drop us if we dawdle, so that
- *    path gets a hard in-memory budget.
+ * The classifier is still guarded by a plain monitor rather than a coroutine Mutex.
+ * Every critical section is a few thousand float operations with no suspension point
+ * inside it, so a Mutex would buy nothing and cost a continuation.
  *
- * The classifier is guarded by a plain monitor rather than a coroutine Mutex precisely
- * so the fast path can take it without suspending. Every critical section is a few
- * thousand float operations, so contention is not a concern.
+ * The caches matter more than they look. Rules, taught surfaces, app policies and sender
+ * history are all read from the accessibility service's hot path, which runs tens of
+ * times a second while you scroll — so they are held in memory and refreshed from flows
+ * rather than queried per event.
  */
 class HeedRepository(private val context: Context) {
 
@@ -62,7 +67,6 @@ class HeedRepository(private val context: Context) {
     private val ruleCache = ConcurrentHashMap<String, FocusRule>()
     private val surfaceCache =
         ConcurrentHashMap<String, List<io.github.sebastianyousef.heed.focus.LearnedSurface>>()
-    @Volatile private var rulesWarm = false
 
     /**
      * conversation -> what we know about it, refreshed when feedback changes.
@@ -81,16 +85,26 @@ class HeedRepository(private val context: Context) {
     val settings: Flow<Settings> get() = settingsStore.settings
 
     /**
-     * Call once from a long-lived scope (the capture services do this on connect).
+     * The scope the caches live in, owned here rather than borrowed.
      *
-     * Guarded, because three separate services now want warm caches and each call used
-     * to start its own set of collectors on the same singleton — three copies of every
-     * flow, each rebuilding the same maps on every write.
+     * This used to take a `CoroutineScope` from whichever service called first, guarded
+     * so it only ran once. Those two decisions are fine apart and broken together: the
+     * first caller was often [AttentionService], which is stopped whenever no rule needs
+     * it, and cancelling its scope killed every collector while the guard refused to let
+     * anyone start them again. The rule cache then stayed empty for the life of the
+     * process, `cachedRuleFor` returned null for everything, and blocking silently never
+     * fired again — with the rules still visibly set in the UI, which is the worst way
+     * for it to fail.
+     *
+     * The repository is a process-lifetime singleton, so the caches belong to a scope
+     * with the same lifetime. Nothing outside can now cancel them.
      */
+    private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val warmed = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    fun warmCaches(scope: CoroutineScope) {
+    fun warmCaches() {
         if (!warmed.compareAndSet(false, true)) return
+        val scope = cacheScope
         scope.launch { ensureModelLoaded() }
         scope.launch {
             settingsStore.settings.collect { cachedSettings = it }
@@ -99,7 +113,6 @@ class HeedRepository(private val context: Context) {
             dao.observeFocusRules().collect { rules ->
                 ruleCache.clear()
                 for (r in rules) ruleCache[r.packageName] = r
-                rulesWarm = true
             }
         }
         scope.launch {
@@ -180,8 +193,6 @@ class HeedRepository(private val context: Context) {
     fun cachedSurfacesFor(pkg: String): List<io.github.sebastianyousef.heed.focus.LearnedSurface> =
         surfaceCache[pkg].orEmpty()
 
-    fun rulesAreWarm(): Boolean = rulesWarm
-
     /**
      * Whether any rule needs to act the instant an app comes to the foreground.
      *
@@ -192,9 +203,6 @@ class HeedRepository(private val context: Context) {
     fun anyRuleNeedsForeground(): Boolean = ruleCache.values.any {
         it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
     }
-
-    /** True if any app at all has a rule, so a hot path can leave immediately. */
-    fun hasAnyRule(): Boolean = ruleCache.isNotEmpty()
 
     suspend fun ensureModelLoaded() {
         if (modelLoaded) return
@@ -208,16 +216,6 @@ class HeedRepository(private val context: Context) {
     }
 
     /** Non-suspending, cache-only. Safe to call from onNotificationEnqueued. */
-    fun scoreFast(record: NotificationRecord): ScoreResult {
-        val policy = policyCache[record.packageName] ?: AppPolicy.LEARN
-        val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
-            .coerceIn(0f, 1f)
-        return synchronized(classifierLock) {
-            pipeline.score(record, policy, chatty, effectiveThreshold(cachedSettings), senderHistoryFor(record))
-        }
-    }
-
-    /** Disk-backed, authoritative. Used by the listener path. */
     suspend fun score(record: NotificationRecord): ScoreResult {
         ensureModelLoaded()
         val policy = dao.policyFor(record.packageName)?.policy ?: AppPolicy.LEARN
@@ -411,6 +409,44 @@ class HeedRepository(private val context: Context) {
 
     fun modelStats(): Pair<Int, Float> = synchronized(classifierLock) {
         classifier.examplesSeen to classifier.confidence()
+    }
+
+    /**
+     * Rebuild the classifier from every judgement you have ever made.
+     *
+     * Worth having for a reason that only shows up on upgrade. The feature vector grows
+     * when a new signal is added — the sender block did exactly that — and the weights
+     * carried over from before have nothing to say about the new dimensions. Training
+     * resumes from there, so the new signal takes as long to become useful as the old one
+     * originally did, even though every example needed to fit it is still sitting in the
+     * database.
+     *
+     * Replaying them fixes that in a second. It also gives [resetModel] a way back, which
+     * a reset otherwise does not have.
+     *
+     * Retention does not get in the way: scrubbing removes the words but keeps the row,
+     * the app, the shape and the feedback, so an old example still trains — just with a
+     * weaker text signal, which is the honest amount of information left in it.
+     */
+    suspend fun retrainFromHistory(): Int {
+        val examples = dao.trainingExamples()
+        if (examples.isEmpty()) return 0
+
+        synchronized(classifierLock) { classifier.reset() }
+        // Oldest first, so that recency ordering matches how the model would have seen
+        // them live and the most recent judgements land last.
+        for (record in examples.reversed()) trainOn(record)
+
+        val snapshot = synchronized(classifierLock) {
+            ModelState(
+                weights = classifier.serialize(),
+                bias = classifier.bias,
+                examplesSeen = classifier.examplesSeen,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        dao.saveModel(snapshot)
+        return examples.size
     }
 
     suspend fun resetModel() {

@@ -19,10 +19,17 @@ enum class Decision {
 }
 
 /** How we managed to act on it — determines whether the user was interrupted. */
+/**
+ * How Heed got hold of a notification, which decides how clean the interception was.
+ *
+ * There used to be an ASSISTANT value here for
+ * `NotificationAssistantService.onNotificationEnqueued`, which would have let Heed judge
+ * a notification before it was ever displayed. That API is `@SystemApi` and not on the
+ * public SDK classpath, so no third-party app can implement it on any device — the value
+ * was never once written, on any version, and has been removed rather than left as a
+ * promise the app cannot keep.
+ */
 enum class CapturePath {
-    /** NotificationAssistantService.onNotificationEnqueued — demoted before display. Clean. */
-    ASSISTANT,
-
     /** Listener saw it, but the source app was already silenced, so nothing alerted. Clean. */
     QUIET_SOURCE,
 

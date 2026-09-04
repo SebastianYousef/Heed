@@ -1,93 +1,174 @@
 package io.github.sebastianyousef.heed
 
+import io.github.sebastianyousef.heed.focus.DetectionMode
 import io.github.sebastianyousef.heed.focus.FocusEnforcer
 import io.github.sebastianyousef.heed.focus.FocusMode
 import io.github.sebastianyousef.heed.focus.FocusRule
+import io.github.sebastianyousef.heed.focus.ScrollDecision
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private class FakeData(
-    private val rule: FocusRule?,
-    private val scrollSeconds: Int = 0,
-    private val usageSeconds: Int = 0,
-) : FocusEnforcer.Data {
-    override suspend fun rule(pkg: String) = rule
-    override suspend fun scrollSecondsToday(pkg: String) = scrollSeconds
-    override suspend fun usageSecondsToday(pkg: String) = usageSeconds
-    override suspend fun launchesToday(pkg: String) = 0
-    override suspend fun isBedtime() = false
-}
-
 private const val SNAP = "com.snapchat.android"
 private const val LI = "com.linkedin.android"
 
-class FocusEnforcerTest {
+/**
+ * The scrolling decision, tested against the function the phone actually runs.
+ *
+ * These tests used to call `FocusEnforcer.onScroll`, which stopped being reachable when
+ * the hot path was rewritten to work from a cached rule with no IO. They kept passing for
+ * weeks against code that never executed — a worse position than having no tests, because
+ * they reported the behaviour was covered. [ScrollDecision] is now the single copy, and
+ * this is it.
+ */
+class ScrollDecisionTest {
+
+    private fun rule(
+        mode: FocusMode = FocusMode.OFF,
+        detection: DetectionMode = DetectionMode.BEHAVIOURAL,
+        budgetEvents: Int = 4,
+        dailyScrollSeconds: Int = 0,
+    ) = FocusRule(
+        packageName = SNAP,
+        appLabel = "Snapchat",
+        mode = mode,
+        detection = detection,
+        scrollBudgetEvents = budgetEvents,
+        dailyScrollSeconds = dailyScrollSeconds,
+    )
 
     @Test
-    fun `an app with no rule is never touched`() = runBlocking {
-        val enforcer = FocusEnforcer(FakeData(null))
-        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onScroll(SNAP, 100, 600_000))
-        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onAppOpened(SNAP))
-    }
-
-    @Test
-    fun `block mode stops a feed within a flick or two`() = runBlocking {
-        val rule = FocusRule(SNAP, "Snapchat", mode = FocusMode.BLOCK, scrollBudgetEvents = 4)
-        val enforcer = FocusEnforcer(FakeData(rule))
-
-        // Opening a chat and scrolling a little is left alone.
-        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onScroll(SNAP, 3, 1_000))
-
-        // Continuing past the budget is a feed.
-        val verdict = enforcer.onScroll(SNAP, 4, 2_000)
-        assertTrue(verdict is FocusEnforcer.Verdict.Block)
-    }
-
-    @Test
-    fun `a daily scrolling budget leaves the rest of the app alone`() = runBlocking {
-        val rule = FocusRule(LI, "LinkedIn", mode = FocusMode.OFF, dailyScrollSeconds = 300)
-
-        // Under budget: nothing happens, even in measure-only mode.
-        val under = FocusEnforcer(FakeData(rule, scrollSeconds = 120))
-        assertEquals(FocusEnforcer.Verdict.Allow, under.onScroll(LI, 50, 30_000))
-
-        // Over budget: stopped, and the message says the rest of the app still works.
-        val over = FocusEnforcer(FakeData(rule, scrollSeconds = 301))
-        val verdict = over.onScroll(LI, 1, 500)
-        assertTrue(verdict is FocusEnforcer.Verdict.Block)
-        assertTrue(
-            (verdict as FocusEnforcer.Verdict.Block).detail.contains("Messages"),
+    fun `an app with no rule of any kind is left alone`() {
+        assertEquals(
+            ScrollDecision.Outcome.Continue,
+            ScrollDecision.decide(SNAP, rule(), eventsThisBurst = 500, cumulativeScrollMs = 3_600_000, nudgeThresholdMinutes = 10),
         )
     }
 
     @Test
-    fun `a daily time limit is checked on opening, before any scrolling`() = runBlocking {
-        val rule = FocusRule(LI, "LinkedIn", dailyUsageSeconds = 1800)
-
-        val under = FocusEnforcer(FakeData(rule, usageSeconds = 1000))
-        assertEquals(FocusEnforcer.Verdict.Allow, under.onAppOpened(LI))
-
-        val over = FocusEnforcer(FakeData(rule, usageSeconds = 1900))
-        val verdict = over.onAppOpened(LI)
-        assertTrue(verdict is FocusEnforcer.Verdict.Block)
-        assertTrue((verdict as FocusEnforcer.Verdict.Block).headline.contains("LinkedIn"))
+    fun `block mode stops within a flick or two`() {
+        val r = rule(mode = FocusMode.BLOCK, budgetEvents = 4)
+        assertEquals(
+            ScrollDecision.Outcome.Continue,
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 3, cumulativeScrollMs = 1_000, nudgeThresholdMinutes = 10),
+        )
+        assertTrue(
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 4, cumulativeScrollMs = 2_000, nudgeThresholdMinutes = 10)
+                is ScrollDecision.Outcome.Stop
+        )
     }
 
     @Test
-    fun `nudge mode reports minutes rather than blocking`() = runBlocking {
-        val rule = FocusRule(LI, "LinkedIn", mode = FocusMode.NUDGE)
-        val enforcer = FocusEnforcer(FakeData(rule))
-        assertEquals(FocusEnforcer.Verdict.Nudge(7), enforcer.onScroll(LI, 200, 7 * 60_000))
-        // Under a minute is not yet worth interrupting for.
-        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onScroll(LI, 5, 30_000))
+    fun `precise mode never blocks on a scroll count`() {
+        // Fifty scrolls in one burst: a chat history being read back, and exactly the
+        // case that used to eject the user mid-conversation. Only surface matching may
+        // block in Precise mode.
+        val r = rule(mode = FocusMode.BLOCK, detection = DetectionMode.PRECISE, budgetEvents = 4)
+        assertEquals(
+            ScrollDecision.Outcome.Continue,
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 50, cumulativeScrollMs = 30_000, nudgeThresholdMinutes = 10),
+        )
     }
 
     @Test
-    fun `measure-only means measure only`() = runBlocking {
-        val rule = FocusRule(SNAP, "Snapchat", mode = FocusMode.OFF)
-        val enforcer = FocusEnforcer(FakeData(rule, scrollSeconds = 99_999))
-        assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onScroll(SNAP, 500, 3_600_000))
+    fun `nudging counts scrolling across pauses, not one unbroken burst`() {
+        val r = rule(mode = FocusMode.NUDGE)
+        // Seven minutes of scrolling in this visit, however many times it was interrupted
+        // by actually reading something. The old unbroken-burst rule could not fire at
+        // all, which is why LinkedIn appeared to do nothing.
+        assertEquals(
+            ScrollDecision.Outcome.Nudge(7),
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 3, cumulativeScrollMs = 7 * 60_000L, nudgeThresholdMinutes = 5),
+        )
+        assertEquals(
+            ScrollDecision.Outcome.Continue,
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 200, cumulativeScrollMs = 60_000L, nudgeThresholdMinutes = 5),
+        )
+    }
+
+    @Test
+    fun `a nudge threshold of zero turns nudging off`() {
+        val r = rule(mode = FocusMode.NUDGE)
+        assertEquals(
+            ScrollDecision.Outcome.Continue,
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 200, cumulativeScrollMs = 3_600_000, nudgeThresholdMinutes = 0),
+        )
+    }
+
+    @Test
+    fun `a daily budget is the only outcome that asks for a disk read`() {
+        val r = rule(mode = FocusMode.OFF, dailyScrollSeconds = 600)
+        assertEquals(
+            ScrollDecision.Outcome.NeedsBudgetCheck,
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 1, cumulativeScrollMs = 500, nudgeThresholdMinutes = 10),
+        )
+        // And the message it produces once the caller has the number.
+        val stop = ScrollDecision.budgetExhausted(r)
+        assertTrue(stop.headline.contains("Snapchat"))
+        assertTrue(stop.detail.contains("10 minutes"))
+    }
+
+    @Test
+    fun `stopping outranks nudging when a rule could do both`() {
+        // A Block rule with a budget set: the immediate stop wins, because the user asked
+        // for the feed to end now rather than to be reminded about it.
+        val r = rule(mode = FocusMode.BLOCK, budgetEvents = 2, dailyScrollSeconds = 600)
+        assertTrue(
+            ScrollDecision.decide(SNAP, r, eventsThisBurst = 5, cumulativeScrollMs = 9_000_000, nudgeThresholdMinutes = 1)
+                is ScrollDecision.Outcome.Stop
+        )
+    }
+}
+
+/** Entry checks: what happens the moment an app is opened, before a single scroll. */
+class FocusEnforcerTest {
+
+    private class Fake(
+        private val rule: FocusRule?,
+        private val usage: Int = 0,
+        private val launches: Int = 0,
+        private val bedtime: Boolean = false,
+    ) : FocusEnforcer.Data {
+        override suspend fun rule(pkg: String) = rule
+        override suspend fun usageSecondsToday(pkg: String) = usage
+        override suspend fun launchesToday(pkg: String) = launches
+        override suspend fun isBedtime() = bedtime
+    }
+
+    private val limited = FocusRule(LI, "LinkedIn", dailyUsageSeconds = 1_800, dailyLaunchLimit = 5)
+
+    @Test
+    fun `an app with no rule is never stopped`() = runBlocking {
+        assertEquals(FocusEnforcer.Verdict.Allow, FocusEnforcer(Fake(null)).onAppOpened(LI))
+    }
+
+    @Test
+    fun `a time limit closes the app once spent`() = runBlocking {
+        assertEquals(
+            FocusEnforcer.Verdict.Allow,
+            FocusEnforcer(Fake(limited, usage = 1_799)).onAppOpened(LI),
+        )
+        assertTrue(
+            FocusEnforcer(Fake(limited, usage = 1_800)).onAppOpened(LI)
+                is FocusEnforcer.Verdict.Block
+        )
+    }
+
+    @Test
+    fun `opening it too many times is blocked even under the time limit`() = runBlocking {
+        assertTrue(
+            FocusEnforcer(Fake(limited, usage = 0, launches = 5)).onAppOpened(LI)
+                is FocusEnforcer.Verdict.Block
+        )
+    }
+
+    @Test
+    fun `a critical app is allowed whatever the rule says`() = runBlocking {
+        val blocked = FocusRule("com.azure.authenticator", "Authenticator", mode = FocusMode.BLOCK)
+        assertEquals(
+            FocusEnforcer.Verdict.Allow,
+            FocusEnforcer(Fake(blocked, bedtime = true)).onAppOpened("com.azure.authenticator"),
+        )
     }
 }

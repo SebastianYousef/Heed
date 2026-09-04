@@ -43,14 +43,6 @@ data class UsageRange(val dayIndex: Int?) {
     val isWeek: Boolean get() = dayIndex == null
 }
 
-private fun startOfDaysAgo(days: Int): Long = java.util.Calendar.getInstance().apply {
-    set(java.util.Calendar.HOUR_OF_DAY, 0)
-    set(java.util.Calendar.MINUTE, 0)
-    set(java.util.Calendar.SECOND, 0)
-    set(java.util.Calendar.MILLISECOND, 0)
-    add(java.util.Calendar.DAY_OF_YEAR, -days)
-}.timeInMillis
-
 enum class InboxTab(val label: String) {
     NEEDED("Needed"),
     FILTERED("Filtered"),
@@ -120,8 +112,8 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     val attention: StateFlow<List<io.github.sebastianyousef.heed.usage.AttentionStat>> =
         combine(
-            repo.dao.observeAttention(startOfDaysAgo(29), startOfDaysAgo(0)),
-            repo.dao.observeAlertCounts(startOfDaysAgo(29)),
+            repo.dao.observeAttention(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(29), io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(0)),
+            repo.dao.observeAlertCounts(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(29)),
         ) { usage, alerts ->
             val byPackage = alerts.associateBy { it.packageName }
             usage.map { row ->
@@ -133,7 +125,6 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
                     openedFromAlert = row.openedFromAlert,
                     msFromAlerts = row.msFromAlerts,
                     totalMs = row.totalMs,
-                    scrollingSessions = 0,
                     markedNoise = alert?.markedNoise ?: 0,
                     todayMs = row.todayMs,
                     launchesToday = row.launchesToday,
@@ -151,11 +142,11 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * that shows whether a rule you set on Tuesday actually changed anything.
      */
     val usageDays: StateFlow<List<DayTotal>> =
-        repo.dao.observeDayTotals(startOfDaysAgo(6)).map { rows ->
-            val origin = startOfDaysAgo(6)
+        repo.dao.observeDayTotals(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)).map { rows ->
+            val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
             val byIndex = rows.associate { it.dayIndex to it.totalMs }
             (0..6).map { i ->
-                DayTotal(startOfDay = origin + i * 86_400_000L, totalMs = byIndex[i] ?: 0L)
+                DayTotal(startOfDay = origin + i * io.github.sebastianyousef.heed.core.Time.DAY_MS, totalMs = byIndex[i] ?: 0L)
             }
         }
             .flowOn(Dispatchers.Default)
@@ -176,8 +167,8 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val rangeApps: StateFlow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> =
         _range.flatMapLatest { r ->
-            val from = if (r.isWeek) startOfDaysAgo(6) else startOfDaysAgo(6 - r.dayIndex!!)
-            val to = if (r.isWeek) Long.MAX_VALUE else from + 86_400_000L
+            val from = if (r.isWeek) io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6) else io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6 - r.dayIndex!!)
+            val to = if (r.isWeek) Long.MAX_VALUE else from + io.github.sebastianyousef.heed.core.Time.DAY_MS
             repo.dao.observeUsageBetween(from, to)
         }
             .flowOn(Dispatchers.Default)
@@ -185,7 +176,7 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Per-app totals over the same week, for the "last 7 days" view of the list. */
     val weekByApp: StateFlow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> =
-        repo.dao.observeAttention(startOfDaysAgo(6), startOfDaysAgo(0)).map { rows ->
+        repo.dao.observeAttention(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6), io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(0)).map { rows ->
             rows.map {
                 io.github.sebastianyousef.heed.data.AppUsageRow(
                     packageName = it.packageName,
@@ -207,18 +198,18 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * not everything.
      */
     fun appDays(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
-        val origin = startOfDaysAgo(6)
+        val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
         return repo.dao.observeDayTotalsForApp(pkg, origin).map { rows ->
             val byIndex = rows.associate { it.dayIndex to it.totalMs }
-            (0..6).map { DayTotal(origin + it * 86_400_000L, byIndex[it] ?: 0L) }
+            (0..6).map { DayTotal(origin + it * io.github.sebastianyousef.heed.core.Time.DAY_MS, byIndex[it] ?: 0L) }
         }.flowOn(Dispatchers.Default)
     }
 
     fun appOpens(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
-        val origin = startOfDaysAgo(6)
+        val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
         return repo.dao.observeOpensForApp(pkg, origin).map { rows ->
             val byIndex = rows.associate { it.dayIndex to it.totalMs }
-            (0..6).map { DayTotal(origin + it * 86_400_000L, byIndex[it] ?: 0L) }
+            (0..6).map { DayTotal(origin + it * io.github.sebastianyousef.heed.core.Time.DAY_MS, byIndex[it] ?: 0L) }
         }.flowOn(Dispatchers.Default)
     }
 
@@ -360,7 +351,7 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Locks rules for [days]. Cannot be shortened once set — that is the point. */
     fun enableStrict(days: Int) = viewModelScope.launch {
-        val until = System.currentTimeMillis() + days * 86_400_000L
+        val until = System.currentTimeMillis() + days * io.github.sebastianyousef.heed.core.Time.DAY_MS
         if (until > repo.settings.first().strictUntil) {
             repo.settingsStore.setStrictUntil(until)
         }
@@ -420,6 +411,16 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     fun forgetLiveChannel(pkg: String, channelId: String) = viewModelScope.launch {
         repo.unmarkLiveChannel(pkg, channelId)
     }
+
+    private val _retrained = MutableStateFlow<Int?>(null)
+    val retrained: StateFlow<Int?> = _retrained
+
+    fun retrain() = viewModelScope.launch {
+        _retrained.value = repo.retrainFromHistory()
+        _modelStats.value = repo.modelStats()
+    }
+
+    fun retrainConsumed() { _retrained.value = null }
 
     fun resetModel() = viewModelScope.launch {
         repo.resetModel()

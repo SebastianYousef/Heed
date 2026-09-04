@@ -627,6 +627,70 @@ notify/     re-raising alerts, inline feedback action
 ui/         Compose: onboarding, inbox, detail ("why"), settings, per-app rules
 ```
 
+## What the audit removed
+
+A read of every file, looking for things that had survived a rewrite without surviving
+its reasoning. The rule applied was that each line should be defensible on its own terms.
+
+**Two copies of the scrolling decision, and only the untested one ran.** `FocusEnforcer`
+still held an `onScroll` that read the rule and the daily total from Room per event. When
+that turned out to cost most of the battery it was reimplemented inline in the service
+against a cached rule — and the original was left behind, with four test classes still
+exercising it. They passed for weeks against code that never executed, which is a worse
+position than having no tests, because they reported the behaviour was covered. The
+decision is now [ScrollDecision], a pure function the service calls and the tests call.
+
+**A comment that claimed the opposite of the truth.** `ScrollWatcherService` documented
+itself as running *without* `canRetrieveWindowContent` and therefore incapable of being
+given the screen's text. That stopped being true when precise matching was added. A false
+reassurance about a privacy boundary is worse than none, so the class now states plainly
+what it holds, what it reads, and why the difference is the point.
+
+**A field that always said zero.** `AttentionStat.scrollingSessions` was computed by an
+in-memory builder that SQLite replaced; the production path passed a hard-coded `0` while
+the builder stayed alive purely to satisfy its own tests.
+
+**An enum value no version could ever produce.** `CapturePath.ASSISTANT`, for the
+`NotificationAssistantService` path that turned out to be `@SystemApi` and unavailable to
+any third-party app — along with `scoreFast`, the non-suspending scorer that existed only
+to meet that API's timing budget, and a class comment describing two scoring paths where
+one had had a caller for months.
+
+Plus: five private copies of "midnight this morning" and two of the duration formatter
+(now `core/Time`, because a screen-time total and the limit enforced against it must agree
+about when the day starts); `SurfaceCapture.hasAnchor`, superseded by the bounds-aware
+version; a `connected` flag written and never read; dead DAO queries; and a private
+`contentColorFor` shadowing Material3's function of the same name.
+
+### The bug it turned up
+
+Worth recording separately, because the audit found it and no test would have.
+
+`warmCaches` had been given a run-once guard *and* took its `CoroutineScope` from whoever
+called first. Those are fine apart and broken together: the first caller was often
+`AttentionService`, which is stopped whenever no rule needs it, and cancelling its scope
+killed every cache collector while the guard refused to let anything restart them. The
+rule cache then stayed empty for the life of the process, `cachedRuleFor` returned null
+for every app, and **blocking silently stopped working entirely** — with the rules still
+showing as set in the UI, which is the worst way for it to fail.
+
+It reproduced on the release build and not on debug, purely because service startup order
+differed. The repository is a process-lifetime singleton, so it now owns a scope with the
+same lifetime and `warmCaches()` takes no argument — the borrowing is not a mistake that
+can be made again.
+
+## Signing and the debug build
+
+Every build that reached the phone until now was a *debug* build, carrying the
+`DEBUGGABLE` flag — which lets anyone with adb read the app's database through `run-as`.
+For an app whose whole premise is that your notification history stays on the device,
+that was the wrong thing to leave in place. Release builds are now signed from a keystore
+kept out of the repository (`keystore.properties`, gitignored), so they install as
+ordinary updates and carry no debug flag.
+
+Losing that keystore means no future release can update an existing install in place, so
+it is worth backing up.
+
 ## Build
 
 Needs JDK 17–21 (not 26 — AGP rejects it) and the Android SDK.

@@ -118,7 +118,6 @@ private class Fake(
     private val usage: Int = 0,
 ) : FocusEnforcer.Data {
     override suspend fun rule(pkg: String) = rule
-    override suspend fun scrollSecondsToday(pkg: String) = 0
     override suspend fun usageSecondsToday(pkg: String) = usage
     override suspend fun launchesToday(pkg: String) = launches
     override suspend fun isBedtime() = bedtime
@@ -219,11 +218,20 @@ class CriticalAppsTest {
             mode = FocusMode.BLOCK, scrollBudgetEvents = 2, dailyUsageSeconds = 1,
         )
         val enforcer = FocusEnforcer(Fake(rule, launches = 99, bedtime = true, usage = 99_999))
-        assertEquals(
-            FocusEnforcer.Verdict.Allow,
-            enforcer.onScroll("com.azure.authenticator", 50, 600_000),
-        )
         assertEquals(FocusEnforcer.Verdict.Allow, enforcer.onAppOpened("com.azure.authenticator"))
+
+        // And the scrolling half, which is a separate decision and was separately
+        // capable of getting this wrong.
+        assertEquals(
+            io.github.sebastianyousef.heed.focus.ScrollDecision.Outcome.Continue,
+            io.github.sebastianyousef.heed.focus.ScrollDecision.decide(
+                packageName = "com.azure.authenticator",
+                rule = rule,
+                eventsThisBurst = 50,
+                cumulativeScrollMs = 600_000,
+                nudgeThresholdMinutes = 1,
+            ),
+        )
     }
 
     @Test

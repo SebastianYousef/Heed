@@ -1,12 +1,10 @@
 package io.github.sebastianyousef.heed
 
 import io.github.sebastianyousef.heed.focus.DetectionMode
-import io.github.sebastianyousef.heed.focus.FocusEnforcer
 import io.github.sebastianyousef.heed.focus.FocusMode
 import io.github.sebastianyousef.heed.focus.FocusRule
 import io.github.sebastianyousef.heed.focus.KnownScrollers
 import io.github.sebastianyousef.heed.focus.KnownSurfaces
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,45 +21,11 @@ import org.junit.Test
  */
 class PreciseModeTest {
 
-    private class Fake(private val rule: FocusRule?) : FocusEnforcer.Data {
-        override suspend fun rule(pkg: String) = rule
-        override suspend fun scrollSecondsToday(pkg: String) = 0
-        override suspend fun usageSecondsToday(pkg: String) = 0
-        override suspend fun launchesToday(pkg: String) = 0
-        override suspend fun isBedtime() = false
-    }
-
     private val snapchat = "com.snapchat.android"
 
-    @Test
-    fun `precise mode never blocks on a scroll count`() = runBlocking {
-        val rule = FocusRule(
-            snapchat, "Snapchat",
-            mode = FocusMode.BLOCK,
-            scrollBudgetEvents = 4,
-            detection = DetectionMode.PRECISE,
-        )
-        // Fifty scrolls in one unbroken burst: a chat history being read back, and
-        // exactly the case that used to send the user to the home screen.
-        assertEquals(
-            FocusEnforcer.Verdict.Allow,
-            FocusEnforcer(Fake(rule)).onScroll(snapchat, eventsThisBurst = 50, burstMs = 30_000),
-        )
-    }
-
-    @Test
-    fun `automatic mode still blocks on a scroll count`() = runBlocking {
-        val rule = FocusRule(
-            snapchat, "Snapchat",
-            mode = FocusMode.BLOCK,
-            scrollBudgetEvents = 4,
-            detection = DetectionMode.BEHAVIOURAL,
-        )
-        assertTrue(
-            FocusEnforcer(Fake(rule)).onScroll(snapchat, 10, 5_000)
-                is FocusEnforcer.Verdict.Block
-        )
-    }
+    // The scroll-count cases themselves live in ScrollDecisionTest, against the function
+    // the service actually calls. What is left here is the rule *shape* that keeps them
+    // from arising: an app Heed can be precise in does not start out behavioural.
 
     @Test
     fun `apps with anchors are seeded into precise mode`() {
@@ -76,7 +40,7 @@ class PreciseModeTest {
     }
 
     @Test
-    fun `a rule that only greys the screen is not a bedtime lockout`() = runBlocking {
+    fun `a rule that only greys the screen is not a bedtime lockout`() {
         val grey = FocusRule(snapchat, "Snapchat", grayscale = true)
         assertTrue(grey.onlyChangesColour)
 

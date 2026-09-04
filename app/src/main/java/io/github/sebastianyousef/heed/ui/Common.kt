@@ -11,17 +11,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
-import java.util.concurrent.TimeUnit
 
-fun relativeTime(timestamp: Long): String {
-    val delta = System.currentTimeMillis() - timestamp
-    if (delta < TimeUnit.MINUTES.toMillis(1)) return "just now"
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(delta)
-    if (minutes < 60) return "${minutes}m ago"
-    val hours = TimeUnit.MILLISECONDS.toHours(delta)
-    if (hours < 24) return "${hours}h ago"
-    return "${TimeUnit.MILLISECONDS.toDays(delta)}d ago"
-}
+fun relativeTime(timestamp: Long): String =
+    io.github.sebastianyousef.heed.core.Time.relative(timestamp)
 
 /** Colour-codes a score so the inbox is scannable without reading numbers. */
 @Composable
@@ -36,7 +28,7 @@ fun ScoreChip(score: Float, forced: Boolean, modifier: Modifier = Modifier) {
         text = label,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Medium,
-        color = contentColorFor(bg),
+        color = onContainerFor(bg),
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
@@ -44,8 +36,13 @@ fun ScoreChip(score: Float, forced: Boolean, modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * Deliberately not Material3's own `contentColorFor`, which returns
+ * [Color.Unspecified] for a colour it does not recognise — and did, silently, for the
+ * surfaceVariant branch below. Named differently so the two cannot be confused.
+ */
 @Composable
-private fun contentColorFor(background: Color): Color = when (background) {
+private fun onContainerFor(background: Color): Color = when (background) {
     MaterialTheme.colorScheme.primaryContainer -> MaterialTheme.colorScheme.onPrimaryContainer
     MaterialTheme.colorScheme.secondaryContainer -> MaterialTheme.colorScheme.onSecondaryContainer
     MaterialTheme.colorScheme.tertiaryContainer -> MaterialTheme.colorScheme.onTertiaryContainer

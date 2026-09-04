@@ -35,7 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf

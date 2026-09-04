@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,7 +23,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.sebastianyousef.heed.core.Time
 import io.github.sebastianyousef.heed.data.AppUsageRow
 import io.github.sebastianyousef.heed.focus.FocusMode
 import io.github.sebastianyousef.heed.focus.FocusRule
@@ -245,7 +244,7 @@ private fun ScreenTimeCard(
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
             )
             Text(
-                formatDuration(totalMs),
+                Time.duration(totalMs),
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -378,7 +377,7 @@ private fun AppRow(
                     )
                 }
                 Text(
-                    formatDuration(row.totalMs),
+                    Time.duration(row.totalMs),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -594,11 +593,3 @@ private fun rangeHeading(range: UsageRange, days: List<DayTotal>): String {
     }
 }
 
-internal fun formatDuration(ms: Long): String {
-    val minutes = ms / 60_000
-    return when {
-        minutes < 1 -> "under a minute"
-        minutes < 60 -> "${minutes}m"
-        else -> "${minutes / 60}h ${minutes % 60}m"
-    }
-}

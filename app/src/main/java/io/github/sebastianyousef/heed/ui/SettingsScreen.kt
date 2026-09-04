@@ -17,6 +17,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -46,6 +47,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
     val stats by vm.modelStats.collectAsState()
+    val retrained by vm.retrained.collectAsState()
     val exportReady by vm.exportReady.collectAsState()
     val scrubbed by vm.scrubbedCount.collectAsState()
     val readable by vm.readableCount.collectAsState()
@@ -331,7 +333,32 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { vm.resetModel() }) { Text("Forget everything") }
+                retrained?.let {
+                    Text(
+                        if (it == 0) {
+                            "Nothing to replay yet — react to a few notifications first."
+                        } else {
+                            "Replayed $it of your judgements."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(
+                    "Rebuilding replays every judgement you have made, oldest first. Worth " +
+                        "doing after an update that adds a new signal — the weights carried " +
+                        "over from before have nothing to say about it, so it would " +
+                        "otherwise take weeks to become useful again even though every " +
+                        "example needed to fit it is already stored.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { vm.retrain() }) { Text("Rebuild from history") }
+                    TextButton(onClick = { vm.resetModel() }) { Text("Forget everything") }
+                }
             }
         }
     }

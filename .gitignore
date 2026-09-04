@@ -8,3 +8,9 @@ captures/
 .externalNativeBuild
 .cxx
 *.apk
+
+# Signing key for release builds. Never committed: anyone holding it can publish
+# an update that Android will install over Heed without warning. Back it up somewhere
+# safe — losing it means no future release can update an existing install in place.
+heed-release.jks
+keystore.properties

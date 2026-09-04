@@ -5,11 +5,12 @@ import android.view.accessibility.AccessibilityNodeInfo
 /**
  * Reads the structure of the current screen, and nothing else.
  *
- * The one function here is the entire extent of Heed's screen access. It collects view
- * identifiers and class names — enough to recognise "this is the layout Discovery uses" —
- * and never touches `text` or `contentDescription`. That distinction is what makes
- * granting this service acceptable: it learns the shape of a feed without learning
- * anything that is in it.
+ * This file is the entire extent of Heed's screen access, which is why it is worth
+ * keeping small enough to read in one sitting. Everything here touches only
+ * `viewIdResourceName`, `className` and a node's bounds — the skeleton of a layout and
+ * where it sits. Nothing reads `text` or `contentDescription`, so it can recognise the
+ * shape of a feed without learning a word that is on it. That distinction is what makes
+ * the permission defensible, and it is checkable: grep this package for `.text`.
  */
 object SurfaceCapture {
 
@@ -22,28 +23,6 @@ object SurfaceCapture {
     /** The UI asks for the next screen to be recorded. */
     fun arm() { armed = true }
     fun disarm() { armed = false }
-
-    /**
-     * Is a view with this id anywhere on screen?
-     *
-     * An indexed lookup rather than a walk of the tree. It is exact, it costs a fraction
-     * of a full traversal, and it survives redesigns that move an element around as long
-     * as the element keeps its id — which is far more often than a layout keeps its shape.
-     * For the screens Heed ships anchors for, this replaces fingerprinting entirely.
-     */
-    fun hasAnchor(root: AccessibilityNodeInfo?, viewId: String): Boolean {
-        root ?: return false
-        return runCatching {
-            root.findAccessibilityNodeInfosByViewId(viewId).isNotEmpty()
-        }.getOrDefault(false)
-    }
-
-    /**
-     * The event's own source node, for screens that identify themselves by the id of the
-     * thing being scrolled rather than by anything in the window as a whole.
-     */
-    fun sourceHasId(node: AccessibilityNodeInfo?, viewId: String): Boolean =
-        node?.viewIdResourceName == viewId
 
     /**
      * Is a view with this id not merely present, but actually on screen and big?
@@ -85,6 +64,16 @@ object SurfaceCapture {
         if (minFraction <= 0f) return true
         return covered.toFloat() / screenHeight >= minFraction
     }
+
+    /**
+     * Does the view that was just scrolled carry this id?
+     *
+     * Some feeds name themselves on the scrolling view rather than on anything in the
+     * window — Reddit's short feed is one — and for those a window-wide search would also
+     * match the surrounding app.
+     */
+    fun sourceHasId(node: AccessibilityNodeInfo?, viewId: String): Boolean =
+        node?.viewIdResourceName == viewId
 
     /**
      * The view's own id and those of its nearest parents.

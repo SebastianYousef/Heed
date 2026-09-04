@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.sebastianyousef.heed.core.Time
 import io.github.sebastianyousef.heed.focus.CriticalApps
 import io.github.sebastianyousef.heed.focus.DetectionMode
 import io.github.sebastianyousef.heed.focus.FocusMode
@@ -409,7 +410,7 @@ private fun AppUsageCard(
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        formatDuration(todayMs),
+                        Time.duration(todayMs),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = onContainer,
@@ -479,8 +480,8 @@ private fun AppUsageCard(
                 if (showOpens) {
                     "${opens.sumOf { it.totalMs }} opens this week"
                 } else {
-                    "${formatDuration(weekMs)} this week · " +
-                        "${formatDuration(dailyAverage.toLong())} a day on average"
+                    "${Time.duration(weekMs)} this week · " +
+                        "${Time.duration(dailyAverage.toLong())} a day on average"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = onContainer.copy(alpha = 0.8f),

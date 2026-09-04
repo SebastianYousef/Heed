@@ -9,12 +9,12 @@ import android.content.Intent
 import android.widget.RemoteViews
 import io.github.sebastianyousef.heed.MainActivity
 import io.github.sebastianyousef.heed.R
+import io.github.sebastianyousef.heed.core.Time
 import io.github.sebastianyousef.heed.data.HeedRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 /**
  * Today, on the home screen.
@@ -47,7 +47,7 @@ class HeedWidget : AppWidgetProvider() {
             scope.launch {
                 val summary = summarise(context)
                 val views = RemoteViews(context.packageName, R.layout.widget_heed).apply {
-                    setTextViewText(R.id.widget_headline, formatDuration(summary.screenMs))
+                    setTextViewText(R.id.widget_headline, Time.duration(summary.screenMs))
                     setTextViewText(R.id.widget_caption, "screen time today")
                     setTextViewText(
                         R.id.widget_scrolling,
@@ -56,7 +56,7 @@ class HeedWidget : AppWidgetProvider() {
                     setTextViewText(R.id.widget_filtered, "${summary.filtered} filtered")
                     setTextViewText(
                         R.id.widget_top,
-                        summary.topApp?.let { "Most of it: ${it.first} · ${formatDuration(it.second)}" }
+                        summary.topApp?.let { "Most of it: ${it.first} · ${Time.duration(it.second)}" }
                             ?: "Nothing recorded yet today",
                     )
                     setOnClickPendingIntent(
@@ -82,7 +82,7 @@ class HeedWidget : AppWidgetProvider() {
 
         private suspend fun summarise(context: Context): Summary {
             val repo = HeedRepository.get(context)
-            val since = startOfToday()
+            val since = Time.startOfToday()
             val sessions = repo.dao.allSessions(2_000).filter { it.startedAt >= since }
             val byApp = sessions.groupBy { it.packageName }
             val top = byApp
@@ -97,18 +97,5 @@ class HeedWidget : AppWidgetProvider() {
             )
         }
 
-        /** "2h 14m", or "14m". Hours matter, seconds do not. */
-        fun formatDuration(ms: Long): String {
-            val minutes = ms / 60_000
-            val hours = minutes / 60
-            return if (hours > 0) "${hours}h ${minutes % 60}m" else "${minutes}m"
-        }
-
-        private fun startOfToday(): Long = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
     }
 }

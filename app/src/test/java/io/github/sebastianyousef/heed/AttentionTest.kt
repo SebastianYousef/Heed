@@ -5,7 +5,7 @@ import io.github.sebastianyousef.heed.data.Feedback
 import io.github.sebastianyousef.heed.data.NotificationRecord
 import io.github.sebastianyousef.heed.score.FeatureExtractor
 import io.github.sebastianyousef.heed.score.OnlineClassifier
-import io.github.sebastianyousef.heed.usage.AttentionStats
+import io.github.sebastianyousef.heed.usage.AttentionStat
 import io.github.sebastianyousef.heed.usage.SessionJudge
 import io.github.sebastianyousef.heed.usage.SessionQuality
 import io.github.sebastianyousef.heed.usage.SessionRecord
@@ -87,43 +87,45 @@ class AttentionStatsTest {
             feedback = feedback,
         )
 
+    /**
+     * The join itself now happens in SQLite — see `HeedDao.observeAttention`, which does
+     * the same arithmetic over an index instead of pulling every notification and every
+     * session into memory to add up a handful of numbers per app. What is left in Kotlin
+     * is the one derived figure, and it is the one worth pinning: the number that turns
+     * "this app interrupted you fourteen times" into something that stings.
+     */
     @Test
-    fun `attributes time back to the notification that caused it`() {
-        val notifications = listOf(
-            notification(1, "com.example.feed", Decision.ALERTED),
-            notification(2, "com.example.feed", Decision.ALERTED),
-            notification(3, "com.example.feed", Decision.SUPPRESSED),
+    fun `minutes per alert is time attributed to alerts, not total time`() {
+        val stat = AttentionStat(
+            packageName = "com.example.feed",
+            appLabel = "Feed",
+            alerts = 2,
+            openedFromAlert = 2,
+            msFromAlerts = 40 * 60_000L,
+            totalMs = 45 * 60_000L,   // includes a session the user started themselves
+            markedNoise = 0,
+            todayMs = 0,
+            launchesToday = 0,
         )
-        val sessions = listOf(
-            session(30, scrolls = 900, burstSeconds = 300, trigger = 1),
-            session(10, scrolls = 20, trigger = 2),
-            session(5),  // opened by hand, no trigger
-        )
-
-        val stat = AttentionStats.build(notifications, sessions).single()
-        assertEquals(2, stat.alerts)             // suppressed one does not count as an interruption
-        assertEquals(2, stat.openedFromAlert)
-        assertEquals(40 * 60_000L, stat.msFromAlerts)
-        assertEquals(45 * 60_000L, stat.totalMs)  // includes the self-initiated session
-        assertEquals(1, stat.scrollingSessions)
         assertEquals(20.0, stat.minutesPerAlert, 0.01)
     }
 
     @Test
-    fun `an app you only open yourself is not blamed for interrupting you`() {
-        val stat = AttentionStats.build(emptyList(), listOf(session(30))).single()
-        assertEquals(0, stat.alerts)
-        assertEquals(0, stat.openedFromAlert)
-        assertEquals(0L, stat.msFromAlerts)
+    fun `an app that never interrupted you costs you nothing per interruption`() {
+        // Guards the division: an app you only ever open yourself has no alerts to divide
+        // by, and must not report an infinite or NaN cost.
+        val stat = AttentionStat(
+            packageName = "com.example.feed",
+            appLabel = "Feed",
+            alerts = 0,
+            openedFromAlert = 0,
+            msFromAlerts = 0L,
+            totalMs = 30 * 60_000L,
+            markedNoise = 0,
+            todayMs = 0,
+            launchesToday = 0,
+        )
         assertEquals(0.0, stat.minutesPerAlert, 0.0)
-    }
-
-    @Test
-    fun `a session whose trigger has been deleted is not counted as attributed`() {
-        // Retention can remove the notification while the session survives.
-        val sessions = listOf(session(30, trigger = 999))
-        val stat = AttentionStats.build(emptyList(), sessions).single()
-        assertEquals(0, stat.openedFromAlert)
     }
 }
 

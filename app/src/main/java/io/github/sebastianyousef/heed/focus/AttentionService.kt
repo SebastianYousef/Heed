@@ -20,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -90,7 +89,7 @@ class AttentionService : Service() {
 
     private suspend fun loop() {
         val repo = HeedRepository.get(this)
-        repo.warmCaches(scope)
+        repo.warmCaches()
         val usage = getSystemService(UsageStatsManager::class.java)
         while (scope.isActive) {
             // Nothing can be opened while the screen is off, so there is nothing to

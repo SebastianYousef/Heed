@@ -39,10 +39,17 @@ object CriticalApps {
         "emergency", "deskclock", "alarm", "password", "vault", "keepass",
     )
 
-    fun isProtected(packageName: String): Boolean {
-        if (packageName in packages) return true
+    /**
+     * Memoised because this is now asked on the scrolling hot path, where the answer is
+     * consulted tens of times a second and cannot change: a package name is fixed for the
+     * life of an install, so the keyword scan is worth doing exactly once per app.
+     */
+    private val protectedCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    fun isProtected(packageName: String): Boolean = protectedCache.getOrPut(packageName) {
+        if (packageName in packages) return@getOrPut true
         val lower = packageName.lowercase()
-        return keywords.any { lower.contains(it) }
+        keywords.any { lower.contains(it) }
     }
 
     /**

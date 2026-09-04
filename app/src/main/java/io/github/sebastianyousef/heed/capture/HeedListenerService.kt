@@ -33,7 +33,7 @@ class HeedListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         val repo = HeedRepository.get(this)
-        repo.warmCaches(scope)
+        repo.warmCaches()
         Notifier(this).ensureChannels()
         engine = CaptureEngine(this, repo, scope) { key -> cancelNotification(key) }
         ListenerWatchdogWorker.schedule(this)

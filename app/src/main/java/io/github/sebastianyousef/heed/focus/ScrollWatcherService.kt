@@ -2,6 +2,7 @@ package io.github.sebastianyousef.heed.focus
 
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
+import io.github.sebastianyousef.heed.core.Time
 import io.github.sebastianyousef.heed.data.HeedRepository
 import io.github.sebastianyousef.heed.usage.ScrollSpan
 import kotlinx.coroutines.CoroutineScope
@@ -12,20 +13,29 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Measures scrolling, and nothing else.
+ * The only part of Heed that looks at the screen.
  *
- * This is the most invasive permission Heed asks for, so it is worth being precise about
- * what it can and cannot do. The service is declared without `canRetrieveWindowContent`,
- * which means Android will not give it the screen's text under any circumstances — not
- * messages, not what you type, not passwords. It receives two event types: "something
- * scrolled" and "the foreground window changed". That is the entire surface.
+ * It is worth being exact about what that means, because an earlier version of this
+ * comment claimed the service ran *without* `canRetrieveWindowContent` and therefore
+ * could never be given the screen's text. That stopped being true the moment precise
+ * matching was added, and a false reassurance about a privacy boundary is worse than no
+ * comment at all. The truth is:
  *
- * That constraint shaped the detection approach, and improved it. Rather than recognising
- * particular feeds by their view ids — which needs content access, breaks whenever an app
- * ships a redesign, and only ever covers apps someone remembered to add — Heed watches for
- * the *behaviour*: fast, sustained, uninterrupted scrolling. That is what doom scrolling
- * is, it works in an app nobody has heard of yet, and it can be measured from event
- * timing alone.
+ *  - It **does** hold `canRetrieveWindowContent`, and could read the text on screen.
+ *  - It never does. The only things read from a node are `viewIdResourceName` and
+ *    `className` — the structural skeleton of a layout. Grep `focus/` for `.text` and
+ *    `contentDescription`: there are no reads.
+ *  - Android is told which apps may generate events at all (see [restrictToInterestingApps]),
+ *    so for everything else the tree is never even offered.
+ *
+ * That is a narrower thing than "reads your screen", and the narrowness is the whole
+ * reason this permission is defensible. It buys exactly one capability that behaviour
+ * cannot provide: telling Snapchat's Spotlight from Snapchat's chats, which are the same
+ * scroll events in the same app and can only be separated by knowing which screen you
+ * are on.
+ *
+ * Everything else Heed enforces — time limits, launch counts, bedtime, grayscale — runs
+ * in [AttentionService] on usage statistics, and keeps working with this service off.
  */
 class ScrollWatcherService : AccessibilityService() {
 
@@ -45,11 +55,10 @@ class ScrollWatcherService : AccessibilityService() {
     private var interventionShown = false
 
     override fun onServiceConnected() {
-        connected = true
         instance = this
         // Rules and settings are read on every scroll event; warming them here is what
         // lets that path stay allocation-free.
-        repo = HeedRepository.get(this).also { it.warmCaches(scope) }
+        repo = HeedRepository.get(this).also { it.warmCaches() }
 
         // Ask Android to stop telling us about apps we have no rule for.
         //
@@ -81,6 +90,9 @@ class ScrollWatcherService : AccessibilityService() {
     }
 
     private var repo: HeedRepository? = null
+
+    /** How this service draws and how it leaves a screen. See [Surfacer]. */
+    private val surfacer by lazy { Surfacer.FromService(this) }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
@@ -168,80 +180,58 @@ class ScrollWatcherService : AccessibilityService() {
         if (interventionShown) return
         if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
 
-        // Everything below this line used to be a coroutine launch, a Room query and a
-        // DataStore read — per scroll event. Now the common case, which is "this app has
-        // no rule", costs one hash lookup and returns.
+        // The common case — this app has no rule — is a hash lookup and a return, with no
+        // coroutine, no query and no allocation. That matters because this runs on every
+        // scroll event, which on a fast flick is tens of times a second.
         val repo = repo ?: return
         val rule = repo.cachedRuleFor(pkg) ?: return
-        if (rule.mode == FocusMode.OFF && rule.dailyScrollSeconds <= 0) return
-        if (CriticalApps.isProtected(pkg)) return
 
-        // A daily scrolling budget is the only thing here that needs a count from disk,
-        // and only for apps that have one set. Checked at most once every few seconds.
-        val needsBudget = rule.dailyScrollSeconds > 0
-        if (needsBudget && now - lastBudgetCheck < BUDGET_CHECK_MS) return
-
-        val burstMs = longestBurst
-        val events = scrollCount
         val cumulative = cumulativeScrollMs + (if (lastScrollAt > 0) now - burstStart else 0)
+        val outcome = ScrollDecision.decide(
+            packageName = pkg,
+            rule = rule,
+            eventsThisBurst = scrollCount,
+            cumulativeScrollMs = cumulative,
+            nudgeThresholdMinutes = repo.currentSettings().scrollInterventionMinutes,
+        )
 
-        if (rule.mode == FocusMode.BLOCK &&
-            rule.detection == DetectionMode.BEHAVIOURAL &&
-            events >= rule.scrollBudgetEvents
-        ) {
-            interventionShown = true
-            lastBlockAt = now
-            flush(now)
-            FocusOverlay.bounce(
-                this,
-                "Not this one",
-                "You asked Heed to stop you scrolling ${rule.appLabel}.",
-            )
-            return
-        }
+        when (outcome) {
+            ScrollDecision.Outcome.Continue -> Unit
 
-        // Nudging on *cumulative* scrolling in this visit rather than on one unbroken
-        // burst. The old threshold asked for ten minutes without a three-second pause,
-        // which nobody has ever achieved — reading a single post resets it. It meant the
-        // nudge could not fire at all, which is why LinkedIn appeared to do nothing.
-        if (rule.mode == FocusMode.NUDGE) {
-            val threshold = repo.currentSettings().scrollInterventionMinutes
-            if (threshold > 0 && cumulative >= threshold * 60_000L) {
+            is ScrollDecision.Outcome.Stop -> {
+                interventionShown = true
+                lastBlockAt = now
+                flush(now)
+                FocusOverlay.bounce(surfacer, outcome.headline, outcome.detail)
+            }
+
+            is ScrollDecision.Outcome.Nudge -> {
                 interventionShown = true
                 scope.launch {
                     FocusOverlay.show(
-                        service = this@ScrollWatcherService,
-                        packageName = pkg,
-                        scrollingMinutes = (cumulative / 60_000L).toInt(),
+                        surfacer = surfacer,
+                        scrollingMinutes = outcome.minutes,
                         trigger = repo.lastAttributedTriggerFor(pkg),
                     )
                 }
-                return
             }
-        }
 
-        if (needsBudget) {
-            lastBudgetCheck = now
-            scope.launch {
-                val scrolled = repo.dao.scrollSecondsSince(pkg, startOfToday())
-                if (scrolled < rule.dailyScrollSeconds) return@launch
-                interventionShown = true
-                lastBlockAt = System.currentTimeMillis()
-                FocusOverlay.bounce(
-                    this@ScrollWatcherService,
-                    "You're out of scrolling in ${rule.appLabel}",
-                    "Messages and everything else still work — this is just the feed.",
-                )
+            // The one case that needs a number from disk, rate-limited so that a rule
+            // with a budget does not turn every flick back into a query.
+            ScrollDecision.Outcome.NeedsBudgetCheck -> {
+                if (now - lastBudgetCheck < BUDGET_CHECK_MS) return
+                lastBudgetCheck = now
+                scope.launch {
+                    val scrolled = repo.dao.scrollSecondsSince(pkg, Time.startOfToday())
+                    if (scrolled < rule.dailyScrollSeconds) return@launch
+                    val stop = ScrollDecision.budgetExhausted(rule)
+                    interventionShown = true
+                    lastBlockAt = System.currentTimeMillis()
+                    FocusOverlay.bounce(surfacer, stop.headline, stop.detail)
+                }
             }
         }
     }
-
-    private fun startOfToday(): Long = java.util.Calendar.getInstance().apply {
-        set(java.util.Calendar.HOUR_OF_DAY, 0)
-        set(java.util.Calendar.MINUTE, 0)
-        set(java.util.Calendar.SECOND, 0)
-        set(java.util.Calendar.MILLISECOND, 0)
-    }.timeInMillis
 
     /**
      * Precise matching: is this a screen the user has taught Heed to block?
@@ -363,7 +353,7 @@ class ScrollWatcherService : AccessibilityService() {
      * again, and fall back to Home rather than keep pressing forever.
      */
     private fun bounceOut(label: String, appLabel: String) {
-        FocusOverlay.bounce(this, "Not $label", "The rest of $appLabel still works.")
+        FocusOverlay.bounce(surfacer, "Not $label", "The rest of $appLabel still works.")
         escalate = 0
         main.postDelayed(exitCheck, EXIT_RECHECK_MS)
     }
@@ -405,7 +395,7 @@ class ScrollWatcherService : AccessibilityService() {
             val verdict = FocusEnforcer.from(repo.dao) { repo.isBedtimeNow() }.onAppOpened(pkg)
             if (verdict is FocusEnforcer.Verdict.Block) {
                 lastBlockAt = System.currentTimeMillis()
-                FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
+                FocusOverlay.block(surfacer, verdict.headline, verdict.detail)
             }
         }
     }
@@ -478,7 +468,6 @@ class ScrollWatcherService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        connected = false
         ForegroundApp.clear()
         if (instance === this) instance = null
         flush(System.currentTimeMillis())
@@ -549,9 +538,6 @@ class ScrollWatcherService : AccessibilityService() {
 
         /** Two presses, then leave it alone. */
         private const val MAX_EXIT_ATTEMPTS = 2
-
-        @Volatile var connected = false
-            private set
 
         @Volatile private var instance: ScrollWatcherService? = null
 

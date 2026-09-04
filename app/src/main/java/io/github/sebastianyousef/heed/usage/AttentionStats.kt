@@ -1,7 +1,5 @@
 package io.github.sebastianyousef.heed.usage
 
-import io.github.sebastianyousef.heed.data.Decision
-import io.github.sebastianyousef.heed.data.NotificationRecord
 
 /**
  * What an app actually costs you, joined across both halves of Heed.
@@ -9,6 +7,10 @@ import io.github.sebastianyousef.heed.data.NotificationRecord
  * Screen-time apps can produce [totalMs]. Notification apps can produce [alerts]. Only
  * something holding both can produce [openedFromAlert] and [msFromAlerts] — the chain
  * from "this app interrupted you" to "and that is where the evening went".
+ *
+ * Built by SQLite rather than in Kotlin. The version that assembled this in memory read
+ * every notification and every session on each database change to add up a handful of
+ * numbers per app, which is where most of the app's memory and startup cost went.
  */
 data class AttentionStat(
     val packageName: String,
@@ -21,8 +23,6 @@ data class AttentionStat(
     val msFromAlerts: Long,
     /** Total foreground time in this app, however you got there. */
     val totalMs: Long,
-    /** Sessions judged to be doom scrolling. */
-    val scrollingSessions: Int,
     /** Notifications from this app you explicitly called noise. */
     val markedNoise: Int,
     /** Foreground time today only, which is the number people actually want. */
@@ -32,53 +32,4 @@ data class AttentionStat(
     /** Minutes of your time per notification this app sent. The number that stings. */
     val minutesPerAlert: Double
         get() = if (alerts == 0) 0.0 else (msFromAlerts / 60_000.0) / alerts
-}
-
-object AttentionStats {
-
-    fun build(
-        notifications: List<NotificationRecord>,
-        sessions: List<SessionRecord>,
-        startOfToday: Long = startOfToday(),
-    ): List<AttentionStat> {
-        val byId = notifications.associateBy { it.id }
-        val sessionsByPkg = sessions.groupBy { it.packageName }
-
-        val packages = (notifications.map { it.packageName } + sessions.map { it.packageName })
-            .distinct()
-
-        return packages.mapNotNull { pkg ->
-            val appNotifications = notifications.filter { it.packageName == pkg }
-            val appSessions = sessionsByPkg[pkg].orEmpty()
-            if (appNotifications.isEmpty() && appSessions.isEmpty()) return@mapNotNull null
-
-            val attributed = appSessions.filter { it.triggerNotificationId?.let(byId::containsKey) == true }
-
-            AttentionStat(
-                packageName = pkg,
-                appLabel = appNotifications.firstOrNull()?.appLabel
-                    ?: appSessions.firstOrNull()?.appLabel ?: pkg,
-                alerts = appNotifications.count { it.decision == Decision.ALERTED },
-                openedFromAlert = attributed.size,
-                msFromAlerts = attributed.sumOf { it.durationMs },
-                totalMs = appSessions.sumOf { it.durationMs },
-                scrollingSessions = appSessions.count {
-                    SessionJudge.judge(it) == SessionQuality.SCROLLING
-                },
-                todayMs = appSessions.filter { it.startedAt >= startOfToday }.sumOf { it.durationMs },
-                launchesToday = appSessions.count { it.startedAt >= startOfToday },
-                markedNoise = appNotifications.count {
-                    it.feedback == io.github.sebastianyousef.heed.data.Feedback.MARKED_NOISE ||
-                        it.feedback == io.github.sebastianyousef.heed.data.Feedback.CLICKED_THEN_SCROLLED
-                },
-            )
-        }.sortedByDescending { it.todayMs }
-    }
-
-    private fun startOfToday(): Long = java.util.Calendar.getInstance().apply {
-        set(java.util.Calendar.HOUR_OF_DAY, 0)
-        set(java.util.Calendar.MINUTE, 0)
-        set(java.util.Calendar.SECOND, 0)
-        set(java.util.Calendar.MILLISECOND, 0)
-    }.timeInMillis
 }

@@ -214,9 +214,6 @@ interface HeedDao {
     suspend fun insertSession(session: SessionRecord): Long
 
     @Query("SELECT * FROM sessions ORDER BY startedAt DESC LIMIT :limit")
-    fun observeSessions(limit: Int = 500): Flow<List<SessionRecord>>
-
-    @Query("SELECT * FROM sessions ORDER BY startedAt DESC LIMIT :limit")
     suspend fun allSessions(limit: Int): List<SessionRecord>
 
     @Query("SELECT MAX(endedAt) FROM sessions")
@@ -244,9 +241,6 @@ interface HeedDao {
         """
     )
     suspend fun attributableNotification(pkg: String, from: Long, to: Long): NotificationRecord?
-
-    @Query("SELECT COUNT(*) FROM sessions WHERE startedAt >= :since")
-    suspend fun sessionCountSince(since: Long): Int
 
     @Query("DELETE FROM sessions WHERE startedAt < :before")
     suspend fun deleteSessionsOlderThan(before: Long): Int
@@ -370,10 +364,6 @@ interface HeedDao {
         """
     )
     fun observeDayTotals(originOfDay: Long): Flow<List<DayTotalRow>>
-
-    /** Sessions since a moment, for the day-by-day chart and the week totals. */
-    @Query("SELECT * FROM sessions WHERE startedAt >= :since ORDER BY startedAt DESC")
-    fun observeSessionsSince(since: Long): Flow<List<SessionRecord>>
 
     /** Scrolling across every app since a moment — the widget's second number. */
     @Query("SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans WHERE startedAt >= :since")

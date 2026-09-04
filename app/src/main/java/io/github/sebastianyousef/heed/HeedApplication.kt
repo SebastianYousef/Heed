@@ -20,6 +20,11 @@ class HeedApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Notifier(this).ensureChannels()
+        // Warm the caches from the process itself rather than waiting for whichever
+        // service happens to start first. The accessibility service reads the rule cache
+        // on its very first scroll event, and an empty cache there is indistinguishable
+        // from "no rule set".
+        HeedRepository.get(this).warmCaches()
         scope.launch {
             val settings = HeedRepository.get(this@HeedApplication).settings.first()
             DigestWorker.schedule(this@HeedApplication, settings.digestIntervalHours)

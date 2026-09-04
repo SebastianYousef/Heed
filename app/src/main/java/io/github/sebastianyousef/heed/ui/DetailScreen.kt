@@ -102,7 +102,6 @@ fun DetailScreen(vm: InboxViewModel, id: Long, onBack: () -> Unit) {
                     Text(
                         "Score ${(r.score * 100).toInt()} / 100 · captured via ${
                             when (r.capturePath) {
-                                io.github.sebastianyousef.heed.data.CapturePath.ASSISTANT -> "assistant (before display)"
                                 io.github.sebastianyousef.heed.data.CapturePath.QUIET_SOURCE -> "quiet source (silent app)"
                                 io.github.sebastianyousef.heed.data.CapturePath.CANCEL_AFTER -> "cancelled after posting"
                             }

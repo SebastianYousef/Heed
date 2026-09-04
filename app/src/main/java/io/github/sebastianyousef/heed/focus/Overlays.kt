@@ -42,7 +42,18 @@ sealed interface Surfacer {
     fun windowManager(): WindowManager?
     fun context(): Context
     fun overlayType(): Int
+
+    /** Leave the app entirely. Used only where staying would mean staying in a limit. */
     fun goHome()
+
+    /**
+     * Leave one screen, staying in the app.
+     *
+     * The right answer for a blocked feed: you opened Snapchat to message someone, and
+     * ejecting you from the whole app to stop you seeing Spotlight punishes the thing you
+     * came for.
+     */
+    fun goBack()
 
     /** The accessibility path: no extra permission, and a proper home action. */
     class FromService(private val service: AccessibilityService) : Surfacer {
@@ -51,6 +62,10 @@ sealed interface Surfacer {
         override fun overlayType() = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         override fun goHome() {
             service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+
+        override fun goBack() {
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         }
     }
 
@@ -75,6 +90,13 @@ sealed interface Surfacer {
                 )
             }
         }
+
+        /**
+         * Without an accessibility service there is no way to press Back, so this falls
+         * through to Home. Only reachable from the entry-limit path, which is closing the
+         * app anyway.
+         */
+        override fun goBack() = goHome()
     }
 
     companion object {
@@ -96,9 +118,6 @@ object FocusOverlay {
     private val main = Handler(Looper.getMainLooper())
     private var current: View? = null
 
-    fun block(service: AccessibilityService, headline: String, detail: String) =
-        block(Surfacer.FromService(service), headline, detail)
-
     /**
      * Back out of one screen, without leaving the app.
      *
@@ -112,24 +131,25 @@ object FocusOverlay {
      * a wall you have to wait out is friction applied to an action that has already been
      * undone.
      */
-    fun bounce(service: AccessibilityService, headline: String, detail: String) {
+    fun bounce(surfacer: Surfacer, headline: String, detail: String) {
         main.post {
-            val wm = service.getSystemService(WindowManager::class.java) ?: return@post
+            val wm = surfacer.windowManager() ?: return@post
+            val ctx = surfacer.context()
             dismiss(wm)
-            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            surfacer.goBack()
 
-            val root = LinearLayout(service).apply {
+            val root = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackgroundColor(Color.parseColor("#EE16161C"))
                 setPadding(56, 40, 56, 40)
                 gravity = Gravity.CENTER
             }
-            root.addView(TextView(service).apply {
+            root.addView(TextView(ctx).apply {
                 text = headline
                 textSize = 19f
                 setTextColor(Color.WHITE)
             })
-            root.addView(TextView(service).apply {
+            root.addView(TextView(ctx).apply {
                 text = detail
                 textSize = 13f
                 setTextColor(Color.parseColor("#B8C4DC"))
@@ -139,7 +159,7 @@ object FocusOverlay {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                surfacer.overlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT,
@@ -184,13 +204,6 @@ object FocusOverlay {
             main.postDelayed({ dismiss(wm) }, BLOCK_VISIBLE_MS)
         }
     }
-
-    fun show(
-        service: AccessibilityService,
-        packageName: String,
-        scrollingMinutes: Int,
-        trigger: String?,
-    ) = show(Surfacer.FromService(service), scrollingMinutes, trigger)
 
     fun show(surfacer: Surfacer, scrollingMinutes: Int, trigger: String?) {
         main.post {
