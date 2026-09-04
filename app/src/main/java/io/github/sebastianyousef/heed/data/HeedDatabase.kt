@@ -24,7 +24,7 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         FocusRule::class,
         LearnedSurface::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -164,6 +164,20 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the sender identity. Nullable and unbackfilled: history keeps working, and
+         * rows captured before the upgrade simply have no sender to learn from.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notifications ADD COLUMN conversationId TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_notifications_conversationId " +
+                        "ON notifications(conversationId)"
+                )
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -171,7 +185,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
         }
     }
 }

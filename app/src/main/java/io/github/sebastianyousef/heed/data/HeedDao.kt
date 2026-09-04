@@ -142,6 +142,29 @@ interface HeedDao {
     @Query("SELECT * FROM digests ORDER BY createdAt DESC LIMIT :limit")
     suspend fun allDigests(limit: Int): List<DigestRecord>
 
+    /**
+     * Per-conversation history: how often you have acted on this thread, and how often
+     * you have acted on it at roughly this time of day.
+     *
+     * The hour bucket is what lets the model separate a person from a routine. A standup
+     * bot at nine and the same bot at midnight are the same sender and not the same
+     * event, and a single engagement rate averages that distinction away.
+     */
+    @Query(
+        """
+        SELECT conversationId,
+               COUNT(*) AS seen,
+               SUM(CASE WHEN feedback IN ('CLICKED','MARKED_IMPORTANT') THEN 1 ELSE 0 END) AS engaged,
+               SUM(CASE WHEN feedback IN ('MARKED_NOISE','CLICKED_THEN_SCROLLED') THEN 1 ELSE 0 END) AS dismissed,
+               CAST(strftime('%H', postedAt / 1000, 'unixepoch', 'localtime') AS INTEGER) / 4 AS hourBucket,
+               SUM(CASE WHEN feedback IN ('CLICKED','MARKED_IMPORTANT') THEN 1 ELSE 0 END) AS engagedInBucket
+        FROM notifications
+        WHERE conversationId IS NOT NULL
+        GROUP BY conversationId, hourBucket
+        """
+    )
+    fun observeConversationStats(): Flow<List<ConversationStatRow>>
+
     // --- app policies ---
 
     @Upsert
@@ -273,6 +296,58 @@ interface HeedDao {
     )
     suspend fun usageSecondsSince(pkg: String, since: Long): Int
 
+    /**
+     * Per-app attention, aggregated in SQLite.
+     *
+     * This replaces loading two thousand notifications and two thousand sessions into
+     * memory and joining them in Kotlin on every database change — which is what the
+     * Attention screen used to do, and most of why the app held 270MB and recomputed
+     * everything each time a notification arrived. SQLite does the same arithmetic over
+     * an index without materialising a single row in the heap.
+     */
+    @Query(
+        """
+        SELECT s.packageName AS packageName,
+               MAX(s.appLabel) AS appLabel,
+               SUM(s.durationMs) AS totalMs,
+               COUNT(*) AS launches,
+               SUM(CASE WHEN s.startedAt >= :startOfToday THEN s.durationMs ELSE 0 END) AS todayMs,
+               SUM(CASE WHEN s.startedAt >= :startOfToday THEN 1 ELSE 0 END) AS launchesToday,
+               SUM(CASE WHEN s.triggerNotificationId IS NOT NULL THEN s.durationMs ELSE 0 END) AS msFromAlerts,
+               SUM(CASE WHEN s.triggerNotificationId IS NOT NULL THEN 1 ELSE 0 END) AS openedFromAlert
+        FROM sessions s
+        WHERE s.startedAt >= :since
+        GROUP BY s.packageName
+        ORDER BY todayMs DESC, totalMs DESC
+        """
+    )
+    fun observeAttention(since: Long, startOfToday: Long): Flow<List<AttentionRow>>
+
+    /** Alerts per app over the same window, kept separate so neither query fans out. */
+    @Query(
+        """
+        SELECT packageName,
+               SUM(CASE WHEN decision = 'ALERTED' THEN 1 ELSE 0 END) AS alerts,
+               SUM(CASE WHEN feedback IN ('MARKED_NOISE','CLICKED_THEN_SCROLLED') THEN 1 ELSE 0 END) AS markedNoise
+        FROM notifications
+        WHERE postedAt >= :since
+        GROUP BY packageName
+        """
+    )
+    fun observeAlertCounts(since: Long): Flow<List<AlertCountRow>>
+
+    /** Totals per calendar day, for the chart. One row per day, not one per session. */
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex,
+               SUM(durationMs) AS totalMs
+        FROM sessions
+        WHERE startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeDayTotals(originOfDay: Long): Flow<List<DayTotalRow>>
+
     /** Sessions since a moment, for the day-by-day chart and the week totals. */
     @Query("SELECT * FROM sessions WHERE startedAt >= :since ORDER BY startedAt DESC")
     fun observeSessionsSince(since: Long): Flow<List<SessionRecord>>
@@ -284,15 +359,16 @@ interface HeedDao {
     @Query("SELECT COUNT(*) FROM notifications WHERE decision = 'SUPPRESSED' AND postedAt >= :since")
     suspend fun suppressedSince(since: Long): Int
 
-    /** Foreground time per app since a moment, biggest first. Drives the usage screen. */
+    /** Foreground time per app inside a window, biggest first. Drives the usage screen. */
     @Query(
         """
-        SELECT packageName, appLabel, SUM(durationMs) AS totalMs, COUNT(*) AS launches
-        FROM sessions WHERE startedAt >= :since
+        SELECT packageName, MAX(appLabel) AS appLabel, SUM(durationMs) AS totalMs,
+               COUNT(*) AS launches
+        FROM sessions WHERE startedAt >= :from AND startedAt < :to
         GROUP BY packageName ORDER BY totalMs DESC
         """
     )
-    fun observeUsageSince(since: Long): Flow<List<AppUsageRow>>
+    fun observeUsageBetween(from: Long, to: Long): Flow<List<AppUsageRow>>
 
     // --- learned surfaces ---
 

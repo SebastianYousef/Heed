@@ -112,6 +112,7 @@ object NotificationMapper {
             isOngoing = sbn.isOngoing,
             isGroupSummary = n.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             hasPerson = hasPerson(sbn),
+            conversationId = Conversation.identify(n),
         )
     }
 

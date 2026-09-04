@@ -202,7 +202,11 @@ class KnownSurfaceAnchorTest {
             assertTrue(it.viewId.isNotBlank())
             assertTrue(it.label.isNotBlank())
         }
-        assertEquals(2, KnownSurfaces.forPackage("com.snapchat.android").size)
+        // Spotlight, Discover, and the tap that opens a recommended video from the
+        // Discover row while your friends' stories are still on screen.
+        val snapchat = KnownSurfaces.forPackage("com.snapchat.android")
+        assertEquals(3, snapchat.size)
+        assertEquals(1, snapchat.count { it.match == KnownSurfaces.Match.CLICK })
     }
 }
 

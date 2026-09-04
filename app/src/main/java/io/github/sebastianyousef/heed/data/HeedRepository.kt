@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
+import io.github.sebastianyousef.heed.focus.FocusRule
+import io.github.sebastianyousef.heed.score.SenderHistory
 
 /**
  * Single owner of the database, the settings and the classifier.
@@ -47,17 +49,91 @@ class HeedRepository(private val context: Context) {
     private val policyCache = ConcurrentHashMap<String, AppPolicy>()
     private val silencedCache = ConcurrentHashMap<String, Boolean>()
 
+    /**
+     * Focus rules, in memory.
+     *
+     * The accessibility service is asked "is there a rule for this app" once per scroll
+     * event, which on a fast flick is tens of times a second. Answering that from Room
+     * meant a coroutine launch, a query and a DataStore read per event — the single
+     * largest thing Heed was doing to the battery, and all of it to discover, almost
+     * always, that there is no rule at all. Rules change perhaps once a week, so they
+     * live here and the hot path becomes a hash lookup with no allocation.
+     */
+    private val ruleCache = ConcurrentHashMap<String, FocusRule>()
+    private val surfaceCache =
+        ConcurrentHashMap<String, List<io.github.sebastianyousef.heed.focus.LearnedSurface>>()
+    @Volatile private var rulesWarm = false
+
+    /**
+     * conversation -> what we know about it, refreshed when feedback changes.
+     *
+     * Held in memory for the same reason the rules are: this is read on the capture path,
+     * where a notification is being judged inside a two-second hold and there is no room
+     * for a query.
+     */
+    private val senderCache = ConcurrentHashMap<String, SenderHistory>()
+    private val senderByHour = ConcurrentHashMap<String, FloatArray>()
+
     /** package -> notification count, feeding the "how chatty is this app" feature. */
     private val chattiness = ConcurrentHashMap<String, Int>()
     @Volatile private var chattinessMax = 1
 
     val settings: Flow<Settings> get() = settingsStore.settings
 
-    /** Call once from a long-lived scope (the capture services do this on connect). */
+    /**
+     * Call once from a long-lived scope (the capture services do this on connect).
+     *
+     * Guarded, because three separate services now want warm caches and each call used
+     * to start its own set of collectors on the same singleton — three copies of every
+     * flow, each rebuilding the same maps on every write.
+     */
+    private val warmed = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun warmCaches(scope: CoroutineScope) {
+        if (!warmed.compareAndSet(false, true)) return
         scope.launch { ensureModelLoaded() }
         scope.launch {
             settingsStore.settings.collect { cachedSettings = it }
+        }
+        scope.launch {
+            dao.observeFocusRules().collect { rules ->
+                ruleCache.clear()
+                for (r in rules) ruleCache[r.packageName] = r
+                rulesWarm = true
+            }
+        }
+        scope.launch {
+            dao.observeConversationStats().collect { rows ->
+                senderCache.clear()
+                senderByHour.clear()
+                for ((id, group) in rows.groupBy { it.conversationId }) {
+                    val seen = group.sumOf { it.seen }
+                    val engaged = group.sumOf { it.engaged }
+                    val dismissed = group.sumOf { it.dismissed }
+                    val reacted = engaged + dismissed
+                    senderCache[id] = SenderHistory(
+                        seen = seen,
+                        // Only feedback the user actually gave counts. Notifications they
+                        // never touched say nothing either way, and treating silence as
+                        // rejection would bury every thread they simply read on the
+                        // lock screen.
+                        engagement = if (reacted == 0) 0f else engaged.toFloat() / reacted,
+                    )
+                    val buckets = FloatArray(HOUR_BUCKETS)
+                    for (row in group) {
+                        val b = row.hourBucket.coerceIn(0, HOUR_BUCKETS - 1)
+                        buckets[b] = if (row.seen == 0) 0f
+                        else row.engagedInBucket.toFloat() / row.seen
+                    }
+                    senderByHour[id] = buckets
+                }
+            }
+        }
+        scope.launch {
+            dao.observeSurfaces().collect { surfaces ->
+                surfaceCache.clear()
+                surfaceCache.putAll(surfaces.groupBy { it.packageName })
+            }
         }
         scope.launch {
             dao.observePolicies().collect { policies ->
@@ -71,6 +147,54 @@ class HeedRepository(private val context: Context) {
             }
         }
     }
+
+    /**
+     * The rule for an app without touching disk.
+     *
+     * Returns null both when there is no rule and when the cache has not warmed yet. The
+     * second case resolves within a second of the service connecting, and the cost of
+     * being wrong for that second is one missed scroll measurement — far cheaper than
+     * making every caller wait on IO to find out.
+     */
+    /**
+     * What is known about the sender of this notification, at this time of day.
+     *
+     * Returns [SenderHistory.UNKNOWN] for a thread never seen before, which is the honest
+     * answer — a first message from someone new should be judged on its content, not
+     * penalised for being unfamiliar.
+     */
+    fun senderHistoryFor(record: NotificationRecord): SenderHistory {
+        val id = record.conversationId ?: return SenderHistory.UNKNOWN
+        val base = senderCache[id] ?: return SenderHistory.UNKNOWN
+        val hour = Calendar.getInstance().apply { timeInMillis = record.postedAt }
+            .get(Calendar.HOUR_OF_DAY)
+        val bucket = (hour / 4).coerceIn(0, HOUR_BUCKETS - 1)
+        return base.copy(engagementAtHour = senderByHour[id]?.getOrNull(bucket) ?: 0f)
+    }
+
+    fun cachedRuleFor(pkg: String): FocusRule? = ruleCache[pkg]
+
+    /**
+     * Taught screens for an app, in memory for the same reason the rules are.
+     */
+    fun cachedSurfacesFor(pkg: String): List<io.github.sebastianyousef.heed.focus.LearnedSurface> =
+        surfaceCache[pkg].orEmpty()
+
+    fun rulesAreWarm(): Boolean = rulesWarm
+
+    /**
+     * Whether any rule needs to act the instant an app comes to the foreground.
+     *
+     * Scroll rules do not: they are driven by scroll events, which arrive on their own.
+     * Only limits and grayscale care about the moment of entry, so with none of those set
+     * the foreground app can be checked far more lazily.
+     */
+    fun anyRuleNeedsForeground(): Boolean = ruleCache.values.any {
+        it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
+    }
+
+    /** True if any app at all has a rule, so a hot path can leave immediately. */
+    fun hasAnyRule(): Boolean = ruleCache.isNotEmpty()
 
     suspend fun ensureModelLoaded() {
         if (modelLoaded) return
@@ -89,7 +213,7 @@ class HeedRepository(private val context: Context) {
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
             .coerceIn(0f, 1f)
         return synchronized(classifierLock) {
-            pipeline.score(record, policy, chatty, effectiveThreshold(cachedSettings))
+            pipeline.score(record, policy, chatty, effectiveThreshold(cachedSettings), senderHistoryFor(record))
         }
     }
 
@@ -102,7 +226,7 @@ class HeedRepository(private val context: Context) {
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
             .coerceIn(0f, 1f)
         return synchronized(classifierLock) {
-            pipeline.score(record, policy, chatty, effectiveThreshold(settings))
+            pipeline.score(record, policy, chatty, effectiveThreshold(settings), senderHistoryFor(record))
         }
     }
 
@@ -253,7 +377,7 @@ class HeedRepository(private val context: Context) {
         }
         val chatty = ((chattiness[record.packageName] ?: 0).toFloat() / chattinessMax)
             .coerceIn(0f, 1f)
-        val features = FeatureExtractor.extract(record, chatty)
+        val features = FeatureExtractor.extract(record, chatty, senderHistoryFor(record))
         val snapshot = synchronized(classifierLock) {
             classifier.train(features, label, weight)
             ModelState(
@@ -514,6 +638,9 @@ class HeedRepository(private val context: Context) {
         private const val ORPHAN_HOLD_MS = 60_000L
 
         @Volatile private var instance: HeedRepository? = null
+        /** Four-hour slices: coarse enough to fill within a week of ordinary use. */
+        const val HOUR_BUCKETS = 6
+
         fun get(context: Context): HeedRepository = instance ?: synchronized(this) {
             instance ?: HeedRepository(context.applicationContext).also { instance = it }
         }

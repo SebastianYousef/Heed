@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -29,6 +31,17 @@ import io.github.sebastianyousef.heed.export.RedactionLevel
 
 /** One calendar day's screen time, for the chart. */
 data class DayTotal(val startOfDay: Long, val totalMs: Long)
+
+/**
+ * What the Attention screen is currently showing.
+ *
+ * A day index of 6 is today and 0 is six days ago; null means the whole week. Keeping
+ * this as one value rather than a pair of booleans is what lets the chart, the headline
+ * and the app list all be driven from a single tap on a bar.
+ */
+data class UsageRange(val dayIndex: Int?) {
+    val isWeek: Boolean get() = dayIndex == null
+}
 
 private fun startOfDaysAgo(days: Int): Long = java.util.Calendar.getInstance().apply {
     set(java.util.Calendar.HOUR_OF_DAY, 0)
@@ -96,11 +109,39 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     val readableCount: StateFlow<Int> = repo.dao.observeReadableCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    /** The join across both halves of the app: what each app's interruptions cost you. */
+    /**
+     * The join across both halves of the app: what each app's interruptions cost you.
+     *
+     * Both sides are aggregated by SQLite and combined here as two short lists — one row
+     * per app rather than four thousand rows of raw history. The previous version loaded
+     * every notification and every session on each database change and joined them in
+     * Kotlin, which is what made opening the Attention tab feel slow and kept the whole
+     * corpus resident.
+     */
     val attention: StateFlow<List<io.github.sebastianyousef.heed.usage.AttentionStat>> =
-        combine(repo.dao.observeAll(2000), repo.dao.observeSessions(2000)) { notifications, sessions ->
-            io.github.sebastianyousef.heed.usage.AttentionStats.build(notifications, sessions)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        combine(
+            repo.dao.observeAttention(startOfDaysAgo(29), startOfDaysAgo(0)),
+            repo.dao.observeAlertCounts(startOfDaysAgo(29)),
+        ) { usage, alerts ->
+            val byPackage = alerts.associateBy { it.packageName }
+            usage.map { row ->
+                val alert = byPackage[row.packageName]
+                io.github.sebastianyousef.heed.usage.AttentionStat(
+                    packageName = row.packageName,
+                    appLabel = row.appLabel,
+                    alerts = alert?.alerts ?: 0,
+                    openedFromAlert = row.openedFromAlert,
+                    msFromAlerts = row.msFromAlerts,
+                    totalMs = row.totalMs,
+                    scrollingSessions = 0,
+                    markedNoise = alert?.markedNoise ?: 0,
+                    todayMs = row.todayMs,
+                    launchesToday = row.launchesToday,
+                )
+            }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The last seven days, one bucket per calendar day, oldest first.
@@ -110,32 +151,52 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * that shows whether a rule you set on Tuesday actually changed anything.
      */
     val usageDays: StateFlow<List<DayTotal>> =
-        repo.dao.observeSessionsSince(startOfDaysAgo(6)).map { sessions ->
-            (6 downTo 0).map { back ->
-                val from = startOfDaysAgo(back)
-                val to = startOfDaysAgo(back - 1)
-                DayTotal(
-                    startOfDay = from,
-                    totalMs = sessions.filter { it.startedAt in from until to }
-                        .sumOf { it.durationMs },
-                )
+        repo.dao.observeDayTotals(startOfDaysAgo(6)).map { rows ->
+            val origin = startOfDaysAgo(6)
+            val byIndex = rows.associate { it.dayIndex to it.totalMs }
+            (0..6).map { i ->
+                DayTotal(startOfDay = origin + i * 86_400_000L, totalMs = byIndex[i] ?: 0L)
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _range = MutableStateFlow(UsageRange(6))
+    val range: StateFlow<UsageRange> = _range
+
+    fun selectRange(range: UsageRange) { _range.value = range }
+
+    /**
+     * The apps in whatever the chart currently has selected.
+     *
+     * Driven straight off the selection so that tapping Tuesday re-queries for Tuesday
+     * rather than filtering a list already in memory — which is both less code and the
+     * difference between holding one day of sessions and holding thirty.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val rangeApps: StateFlow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> =
+        _range.flatMapLatest { r ->
+            val from = if (r.isWeek) startOfDaysAgo(6) else startOfDaysAgo(6 - r.dayIndex!!)
+            val to = if (r.isWeek) Long.MAX_VALUE else from + 86_400_000L
+            repo.dao.observeUsageBetween(from, to)
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Per-app totals over the same week, for the "last 7 days" view of the list. */
     val weekByApp: StateFlow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> =
-        repo.dao.observeSessionsSince(startOfDaysAgo(6)).map { sessions ->
-            sessions.groupBy { it.packageName }
-                .map { (pkg, rows) ->
-                    io.github.sebastianyousef.heed.data.AppUsageRow(
-                        packageName = pkg,
-                        appLabel = rows.first().appLabel,
-                        totalMs = rows.sumOf { it.durationMs },
-                        launches = rows.size,
-                    )
-                }
-                .sortedByDescending { it.totalMs }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        repo.dao.observeAttention(startOfDaysAgo(6), startOfDaysAgo(0)).map { rows ->
+            rows.map {
+                io.github.sebastianyousef.heed.data.AppUsageRow(
+                    packageName = it.packageName,
+                    appLabel = it.appLabel,
+                    totalMs = it.totalMs,
+                    launches = it.launches,
+                )
+            }.sortedByDescending { it.totalMs }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setGrayscale(pkg: String, label: String, on: Boolean) = viewModelScope.launch {
         val existing = repo.dao.focusRuleFor(pkg)

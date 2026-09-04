@@ -10,6 +10,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,10 +109,15 @@ object AppIcons {
 @Composable
 fun AppIcon(packageName: String, label: String, size: Int = 40) {
     val context = LocalContext.current
-    val bitmap = remember(packageName) { AppIcons.icon(context, packageName) }
+    // Decoded off the main thread. An app icon is an adaptive drawable that has to be
+    // rasterised, and doing thirty of them inside composition is a visible stutter the
+    // first time the list is drawn. Cached afterwards, so this only costs once.
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = packageName) {
+        value = withContext(Dispatchers.IO) { AppIcons.icon(context, packageName) }
+    }
     if (bitmap != null) {
         Image(
-            bitmap = bitmap,
+            bitmap = bitmap!!,
             contentDescription = label,
             contentScale = ContentScale.Fit,
             modifier = Modifier.size(size.dp),

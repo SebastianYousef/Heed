@@ -63,6 +63,12 @@ object CriticalApps {
         "coinbase", "wallet", "id06", "freja", "mobilepay", "vipps", "blik",
     )
 
+    /**
+     * Exposed so the accessibility service can name them in its package filter. It has to
+     * receive their window changes to be able to step out of their way.
+     */
+    val securityPackages: Set<String> get() = bankPackages
+
     private val bankPackages = setOf(
         "com.bankid.bus",
         "se.bankgirot.swish",

@@ -96,12 +96,18 @@ class OnlineClassifier(
     fun load(bytes: ByteArray, bias: Float, examplesSeen: Int) {
         val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val storedDim = buf.int
-        // Feature layout changed under us (app upgrade): start clean rather than
-        // silently reading garbage weights.
-        if (storedDim != dim) return
+
+        // A shorter stored vector means a new feature block was appended since it was
+        // written. Every existing index still means what it meant — the new block sits
+        // past the end — so the old weights are copied in and the remainder starts at
+        // zero. This matters more than it looks: throwing the vector away would silently
+        // discard everything the app had learned about the user, on an ordinary upgrade,
+        // with no way to get it back. Growing is only safe while blocks are appended and
+        // never reordered; anything else must still start clean.
+        if (storedDim > dim) return
         val w = FloatArray(dim); val a = FloatArray(dim)
-        for (i in 0 until dim) w[i] = buf.float
-        for (i in 0 until dim) a[i] = buf.float
+        for (i in 0 until storedDim) w[i] = buf.float
+        for (i in 0 until storedDim) a[i] = buf.float
         weights = w; accumulator = a
         this.bias = bias
         this.examplesSeen = examplesSeen

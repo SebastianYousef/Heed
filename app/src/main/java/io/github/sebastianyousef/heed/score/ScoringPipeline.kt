@@ -27,6 +27,7 @@ class ScoringPipeline(private val classifier: OnlineClassifier) {
         policy: AppPolicy,
         appChattiness: Float,
         threshold: Float,
+        sender: SenderHistory = SenderHistory.UNKNOWN,
     ): ScoreResult {
         val verdict = Rules.evaluate(record, policy)
 
@@ -39,7 +40,7 @@ class ScoringPipeline(private val classifier: OnlineClassifier) {
             )
         }
 
-        val features = FeatureExtractor.extract(record, appChattiness)
+        val features = FeatureExtractor.extract(record, appChattiness, sender)
         val modelScore = classifier.predict(features)
         val confidence = classifier.confidence()
         val blended = (1f - confidence) * verdict.prior + confidence * modelScore

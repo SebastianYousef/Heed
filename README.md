@@ -153,6 +153,37 @@ re-checks every 30 minutes, and the inbox shows a red banner whenever the listen
 On AOSP-derived systems, GrapheneOS included, unbinding is rare. On skinned Android
 (Samsung, Xiaomi) aggressive battery management makes it routine.
 
+## Who it is from, and when
+
+"Is this from WhatsApp" is a much weaker question than "is this from the person I always
+reply to". WhatsApp is both your partner and the flat's bin-day group, and an app-level
+filter cannot separate them — which is how these systems end up either interrupting for
+everything or burying the one message that mattered.
+
+So a notification carries a conversation identity: a shortcut id where the app provides
+one, otherwise the sender of the newest `MessagingStyle` message, the conversation title,
+or — only for `CATEGORY_MESSAGE` — the notification title. What is stored is a **hash,
+never the name**. It is stable, so the model can learn a thread over months; one-way, so
+the database gains no new readable record of who you talk to; and it outlives the
+retention scrub that clears the text, so what has been learned survives what can be read.
+
+Time is modelled per sender rather than globally. A standup bot at nine and the same bot
+at midnight are the same sender and not the same event, and a single engagement rate
+averages that away — so history is bucketed into four-hour slices, coarse enough to fill
+within a week of ordinary use.
+
+Two properties worth stating. Only feedback the user actually gave counts towards a
+sender's engagement; a notification they never touched says nothing either way, and
+treating silence as rejection would bury every thread they read on the lock screen. And a
+sender never seen before scores neutral, not negative — a first message from someone new
+is judged on its content, because doing otherwise filters exactly the messages that most
+need to arrive.
+
+The feature block was **appended** to the vector rather than inserted, and the loader now
+grows a shorter stored vector instead of discarding it. Every weight learned before this
+existed keeps its index and its meaning; the alternative silently wiped a user's training
+on an ordinary upgrade.
+
 ## Learning signal
 
 | Event | Label | Weight |
@@ -453,6 +484,41 @@ article. Pausing to read breaks the stretch, so this measures the trance, not th
 The intervention is friction, not a wall — a five-second delay and one honest sentence
 about how you got there, drawn with `TYPE_ACCESSIBILITY_OVERLAY` so it needs no
 `SYSTEM_ALERT_WINDOW` permission. Apps that hard-block get uninstalled by Friday.
+
+## Cost
+
+Heed is a background app that watches notifications and scrolling, so it has to be close
+to free or it is not worth running. Measured on the test device, backgrounded with the
+screen on and the accessibility service connected:
+
+| | Before | After |
+|---|---|---|
+| CPU, backgrounded | ~7.5% of a core | **0.73%** |
+
+Four things did it, in order of how much they mattered:
+
+**The accessibility service was told about every app on the phone.**
+`TYPE_WINDOW_CONTENT_CHANGED` fires constantly in every app, and each one is a binder
+transaction whether or not it is wanted. `AccessibilityServiceInfo.packageNames` now names
+only apps with a rule, known scrollers, and the banking apps Heed steps aside from, so the
+system filters the rest at the source.
+
+**Every scroll event hit the database.** `maybeIntervene` launched a coroutine, ran a Room
+query and read DataStore — per event, tens of times a second on a flick — almost always to
+discover there was no rule. Rules and taught screens are now held in memory and refreshed
+from a flow, so the common case is a hash lookup that allocates nothing.
+
+**The foreground poller ran once a second regardless.** It now stops entirely while the
+screen is off, drops to eight seconds when nothing is configured that needs to act the
+moment an app opens, and prefers the window change the accessibility service already
+received over asking `UsageStatsManager` again.
+
+**The Attention screen loaded the whole corpus.** Two thousand notifications and two
+thousand sessions, joined in Kotlin, on every database change. The same arithmetic is now
+three `GROUP BY` queries that never materialise a row in the heap.
+
+Two smaller ones: `warmCaches` was being called by three services and started a full set of
+collectors each time, and app icons were rasterised inside composition on the main thread.
 
 ## The widget
 

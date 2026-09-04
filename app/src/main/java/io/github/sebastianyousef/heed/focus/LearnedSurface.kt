@@ -59,7 +59,16 @@ object KnownSurfaces {
      * without changing anything about the window around it, where a window-wide search
      * would also match the surrounding app.
      */
-    enum class Match { WINDOW, SOURCE }
+    enum class Match {
+        /** A view with this id exists anywhere in the current window. */
+        WINDOW,
+
+        /** The view that was just scrolled has this id. */
+        SOURCE,
+
+        /** A view that was just tapped, or one of its parents, has this id. */
+        CLICK,
+    }
 
     data class Anchor(
         val packageName: String,
@@ -104,6 +113,14 @@ object KnownSurfaces {
         Anchor(
             "com.snapchat.android", "Discover", "com.snapchat.android:id/df_large_story",
             unless = "com.snapchat.android:id/friend_card_frame",
+        ),
+        // Tapping a Discover card is the other way into a recommended video, and the one
+        // the guard above deliberately leaves open: while your friends' stories are on
+        // screen the feed is not blocked, so the tap has to be. Nothing a friend posted
+        // is inside a df_large_story, so this cannot catch them.
+        Anchor(
+            "com.snapchat.android", "a recommended video",
+            "com.snapchat.android:id/df_large_story", match = Match.CLICK,
         ),
         Anchor("com.instagram.android", "Reels", "com.instagram.android:id/clips_video_container"),
         Anchor("com.instagram.android", "Explore", "com.instagram.android:id/action_bar_search_edit_text"),

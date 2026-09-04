@@ -62,7 +62,11 @@ enum class AppPolicy { LEARN, ALWAYS_ALERT, NEVER_ALERT }
 
 @Entity(
     tableName = "notifications",
-    indices = [Index("postedAt"), Index("packageName"), Index("decision"), Index("sbnKey")],
+    indices = [
+        Index("postedAt"), Index("packageName"), Index("decision"), Index("sbnKey"),
+        // Grouped on by the per-sender history query, which runs on every feedback change.
+        Index("conversationId"),
+    ],
 )
 data class NotificationRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -100,6 +104,14 @@ data class NotificationRecord(
     val isOngoing: Boolean = false,
     val isGroupSummary: Boolean = false,
     val hasPerson: Boolean = false,
+
+    /**
+     * A one-way identifier for who this is from — see [io.github.sebastianyousef.heed.capture.Conversation].
+     *
+     * Deliberately not the name. It survives the retention scrub that clears the text,
+     * so what the model has learned about a thread outlives what anyone can read of it.
+     */
+    val conversationId: String? = null,
 
     /** 0..1, higher = more likely to matter to this user. */
     val score: Float = 0f,
@@ -227,4 +239,43 @@ data class AppUsageRow(
     val appLabel: String,
     val totalMs: Long,
     val launches: Int,
+)
+
+
+/** One app's aggregate, straight out of SQLite. See [HeedDao.observeAttention]. */
+data class AttentionRow(
+    val packageName: String,
+    val appLabel: String,
+    val totalMs: Long,
+    val launches: Int,
+    val todayMs: Long,
+    val launchesToday: Int,
+    val msFromAlerts: Long,
+    val openedFromAlert: Int,
+)
+
+data class AlertCountRow(
+    val packageName: String,
+    val alerts: Int,
+    val markedNoise: Int,
+)
+
+/** Days since the origin, and the screen time in that bucket. */
+data class DayTotalRow(val dayIndex: Int, val totalMs: Long)
+
+
+/**
+ * One conversation's history in one four-hour slice of the day.
+ *
+ * Bucketed rather than exact because there is never enough data per sender for
+ * twenty-four separate hours to mean anything — six buckets is coarse enough to fill up
+ * within a week of normal use and fine enough to separate a working day from a night.
+ */
+data class ConversationStatRow(
+    val conversationId: String,
+    val seen: Int,
+    val engaged: Int,
+    val dismissed: Int,
+    val hourBucket: Int,
+    val engagedInBucket: Int,
 )

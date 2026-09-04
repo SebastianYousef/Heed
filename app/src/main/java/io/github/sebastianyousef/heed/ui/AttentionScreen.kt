@@ -42,6 +42,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,17 +84,16 @@ fun AttentionScreen(
     onOpenApp: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val stats by vm.attention.collectAsState()
     val rules by vm.focusRules.collectAsState()
     val settings by vm.settings.collectAsState()
     val days by vm.usageDays.collectAsState()
-    val week by vm.weekByApp.collectAsState()
+    val rows by vm.rangeApps.collectAsState()
+    val range by vm.range.collectAsState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var usageGranted by remember { mutableStateOf(UsageTracker.hasPermission(context)) }
     var watcherEnabled by remember { mutableStateOf(ScrollWatcherService.isEnabled(context)) }
     var greyAvailable by remember { mutableStateOf(Grayscale.isAvailable(context)) }
-    var range by remember { mutableStateOf(Range.TODAY) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -107,12 +109,6 @@ fun AttentionScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val today: List<AppUsageRow> = stats
-        .filter { it.todayMs > 0 }
-        .map { AppUsageRow(it.packageName, it.appLabel, it.todayMs, it.launchesToday) }
-        .sortedByDescending { it.totalMs }
-
-    val rows = if (range == Range.TODAY) today else week
     val total = rows.sumOf { it.totalMs }
 
     Scaffold(
@@ -136,9 +132,9 @@ fun AttentionScreen(
                 ScreenTimeCard(
                     totalMs = total,
                     opens = rows.sumOf { it.launches },
-                    range = range,
                     days = days,
-                    onRange = { range = it },
+                    range = range,
+                    onSelect = vm::selectRange,
                 )
             }
 
@@ -170,7 +166,7 @@ fun AttentionScreen(
             if (rows.isNotEmpty()) {
                 item {
                     Text(
-                        if (range == Range.TODAY) "Today, app by app" else "Last 7 days, app by app",
+                        if (range.isWeek) "The week, app by app" else "App by app",
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                     )
@@ -201,51 +197,89 @@ fun AttentionScreen(
     }
 }
 
-private enum class Range(val label: String) { TODAY("Today"), WEEK("7 days") }
-
-/** Headline number, range switch, and the week at a glance. */
+/**
+ * The headline card: one number, and seven bars you can actually touch.
+ *
+ * The bars are the control, not decoration. Every screen-time app draws a week chart and
+ * almost none let you tap it, which is odd — "what happened on Tuesday" is the obvious
+ * next question and the data is already on screen. Tapping a bar re-queries that day and
+ * the list below follows, so the chart and the list are never showing different things.
+ */
 @Composable
 private fun ScreenTimeCard(
     totalMs: Long,
     opens: Int,
-    range: Range,
     days: List<DayTotal>,
-    onRange: (Range) -> Unit,
+    range: UsageRange,
+    onSelect: (UsageRange) -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
+    val formatter = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
+
+    // The comparison is the part that means something. Four hours is not a number anyone
+    // can judge; four hours against your own average is.
+    val average = days.filter { it.totalMs > 0 }.map { it.totalMs }.average()
+        .let { if (it.isNaN()) 0.0 else it }
+    val delta = if (range.isWeek || average <= 0) null else (totalMs - average).toLong()
+
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
         ),
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        formatDuration(totalMs),
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Text(
-                        "on your phone · $opens app opens",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Range.entries.forEach { option ->
-                        FilterChip(
-                            selected = range == option,
-                            onClick = { onRange(option) },
-                            label = { Text(option.label) },
-                        )
+        Column(Modifier.padding(18.dp)) {
+            Text(
+                when {
+                    range.isWeek -> "Last 7 days"
+                    range.dayIndex == 6 -> "Today"
+                    range.dayIndex == 5 -> "Yesterday"
+                    else -> days.getOrNull(range.dayIndex ?: 6)
+                        ?.let { formatter.format(Date(it.startOfDay)) } ?: ""
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+            )
+            Text(
+                formatDuration(totalMs),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                buildString {
+                    append("$opens app opens")
+                    delta?.let {
+                        val minutes = kotlin.math.abs(it) / 60_000
+                        if (minutes >= 5) {
+                            append(if (it < 0) " · ${minutes}m below" else " · ${minutes}m above")
+                            append(" your average")
+                        }
                     }
-                }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+            )
+
+            Spacer(Modifier.height(16.dp))
+            WeekChart(days, range) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelect(it)
             }
 
-            if (days.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
-                WeekChart(days)
+            Spacer(Modifier.height(12.dp))
+            TextButton(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(UsageRange(if (range.isWeek) 6 else null))
+                },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+            ) {
+                Text(
+                    if (range.isWeek) "Show a single day" else "Show the whole week",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
             }
         }
     }
@@ -256,44 +290,54 @@ private fun ScreenTimeCard(
  *
  * Scaled to the peak rather than to a fixed ceiling on purpose: an absolute axis makes a
  * good week and a bad week look nearly identical, and the useful signal here is the
- * shape, not the absolute height.
+ * shape. Heights animate so that a change after a rule takes effect is something you
+ * watch happen rather than something you have to remember.
  */
 @Composable
-private fun WeekChart(days: List<DayTotal>) {
+private fun WeekChart(
+    days: List<DayTotal>,
+    range: UsageRange,
+    onSelect: (UsageRange) -> Unit,
+) {
     val peak = (days.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
-    val formatter = remember { SimpleDateFormat("EEE", Locale.getDefault()) }
+    val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
+    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
 
     Row(
-        Modifier.fillMaxWidth().height(72.dp),
+        Modifier.fillMaxWidth().height(96.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        days.forEach { day ->
+        days.forEachIndexed { index, day ->
+            val selected = !range.isWeek && range.dayIndex == index
+            val fraction by animateFloatAsState(
+                targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
+                label = "bar",
+            )
             Column(
-                Modifier.weight(1f).fillMaxHeight(),
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelect(UsageRange(index)) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                val fraction = (day.totalMs.toFloat() / peak).coerceIn(0.02f, 1f)
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = true),
-                    contentAlignment = Alignment.BottomCenter,
-                ) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.BottomCenter) {
                     Box(
                         Modifier
-                            .fillMaxWidth()
+                            .fillMaxWidth(if (selected) 1f else 0.72f)
                             .fillMaxHeight(fraction)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.onPrimaryContainer)
+                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
+                            .background(onContainer.copy(alpha = if (selected) 1f else 0.35f))
                     )
                 }
                 Text(
-                    formatter.format(Date(day.startOfDay)).take(1),
+                    initials.format(Date(day.startOfDay)),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(top = 4.dp),
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = onContainer.copy(alpha = if (selected) 1f else 0.6f),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }

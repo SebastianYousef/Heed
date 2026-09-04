@@ -45,6 +45,25 @@ object SurfaceCapture {
     fun sourceHasId(node: AccessibilityNodeInfo?, viewId: String): Boolean =
         node?.viewIdResourceName == viewId
 
+    /**
+     * The view's own id and those of its nearest parents.
+     *
+     * A tap lands on whatever is under the finger — a thumbnail, a caption, a play icon —
+     * never on the card that owns them. Walking a few levels up finds the card without
+     * traversing anything else on screen.
+     */
+    fun selfAndAncestorIds(node: AccessibilityNodeInfo?, depth: Int): Set<String> {
+        var current = node ?: return emptySet()
+        val ids = LinkedHashSet<String>()
+        var steps = 0
+        while (steps <= depth) {
+            current.viewIdResourceName?.let { ids += it }
+            current = current.parent ?: break
+            steps++
+        }
+        return ids
+    }
+
     fun fingerprint(root: AccessibilityNodeInfo?): Set<String> {
         if (root == null) return emptySet()
         val tokens = LinkedHashSet<String>()

@@ -29,15 +29,44 @@ class Features(val indices: IntArray, val values: FloatArray) {
  * semantic matching, swap this class for a MiniLM ONNX encoder; nothing downstream
  * changes as long as [DIM] stays consistent.
  */
+/**
+ * What is already known about a conversation, from the user's own past behaviour.
+ *
+ * Passed in rather than looked up, so extraction stays a pure function of its arguments
+ * and can run on the capture path without touching the database.
+ */
+data class SenderHistory(
+    /** How many notifications from this conversation have been seen before. */
+    val seen: Int = 0,
+    /** Share of those that the user acted on, 0..1. */
+    val engagement: Float = 0f,
+    /** Share acted on within a few hours of this time of day, 0..1. */
+    val engagementAtHour: Float = 0f,
+) {
+    companion object {
+        val UNKNOWN = SenderHistory()
+    }
+}
+
 object FeatureExtractor {
 
     const val TEXT_DIM = 4096
     const val APP_DIM = 256
     const val STRUCT_DIM = 32
-    const val DIM = TEXT_DIM + APP_DIM + STRUCT_DIM
+
+    /**
+     * Who it is from, hashed.
+     *
+     * Appended after the existing blocks rather than inserted, so every weight learned
+     * before this existed keeps its index and its meaning — see
+     * [OnlineClassifier.load]. Never reorder these; only ever add to the end.
+     */
+    const val PERSON_DIM = 512
+    const val DIM = TEXT_DIM + APP_DIM + STRUCT_DIM + PERSON_DIM
 
     private const val APP_OFFSET = TEXT_DIM
     private const val STRUCT_OFFSET = TEXT_DIM + APP_DIM
+    private const val PERSON_OFFSET = TEXT_DIM + APP_DIM + STRUCT_DIM
 
     private val TOKEN_SPLIT = Regex("[^\\p{L}\\p{N}]+")
 
@@ -73,7 +102,8 @@ object FeatureExtractor {
         "category:service", "from_named_person", "system_importance", "group_summary",
         "hour_sin", "hour_cos", "night", "looks_like_otp", "mentions_money",
         "promo_words", "urgent_words", "text_length", "has_title", "has_url",
-        "app_chattiness",
+        "app_chattiness", "known_sender", "sender_engagement", "weekend", "working_hours",
+        "sender_at_this_hour",
     )
 
     /** Structured slot indices, relative to [STRUCT_OFFSET]. */
@@ -86,13 +116,27 @@ object FeatureExtractor {
         const val OTP = 15; const val MONEY = 16; const val PROMO_HITS = 17
         const val URGENT_HITS = 18; const val LENGTH = 19; const val HAS_TITLE = 20
         const val HAS_URL = 21; const val APP_CHATTINESS = 22
+        const val KNOWN_SENDER = 23; const val SENDER_ENGAGEMENT = 24
+        const val WEEKEND = 25; const val WORK_HOURS = 26; const val SENDER_HOUR = 27
     }
 
     /**
      * @param appChattiness how much this app notifies relative to everything else, 0..1.
      *        Passed in rather than looked up so extraction stays pure and fast.
      */
-    fun extract(record: NotificationRecord, appChattiness: Float = 0f): Features {
+    /**
+     * @param appChattiness how much this app notifies relative to everything else, 0..1.
+     *        Passed in rather than looked up so extraction stays pure and fast.
+     * @param sender what is known about this conversation already: how often you have
+     *        engaged with it, and whether you have engaged with it at this hour. The
+     *        second is what separates "my partner, at any hour" from "the standup bot,
+     *        which matters at nine and never at eleven at night".
+     */
+    fun extract(
+        record: NotificationRecord,
+        appChattiness: Float = 0f,
+        sender: SenderHistory = SenderHistory.UNKNOWN,
+    ): Features {
         val idx = ArrayList<Int>(96)
         val vals = ArrayList<Float>(96)
 
@@ -116,6 +160,13 @@ object FeatureExtractor {
 
         // --- app identity block ---
         addSingle(idx, vals, APP_OFFSET + bucket(record.packageName, APP_DIM), 1f)
+
+        // --- sender identity block ---
+        // One weight per conversation, so the model can hold "this thread always matters"
+        // independently of anything about the app it arrives through.
+        record.conversationId?.let {
+            addSingle(idx, vals, PERSON_OFFSET + bucket(it, PERSON_DIM), 1f)
+        }
 
         // --- structured block ---
         fun struct(slot: Int, value: Float) {
@@ -142,6 +193,19 @@ object FeatureExtractor {
         struct(S.HOUR_SIN, sin(radians))
         struct(S.HOUR_COS, cos(radians))
         struct(S.NIGHT, if (hour >= 22f || hour < 7f) 1f else 0f)
+
+        // Weekday and working hours, kept separate from the smooth hour signal above.
+        // A work app on a Tuesday morning and the same app on a Sunday night are
+        // different things, and sin/cos of the hour cannot express that on its own.
+        val day = cal.get(Calendar.DAY_OF_WEEK)
+        val weekend = day == Calendar.SATURDAY || day == Calendar.SUNDAY
+        struct(S.WEEKEND, if (weekend) 1f else 0f)
+        struct(S.WORK_HOURS, if (!weekend && hour >= 8f && hour < 18f) 1f else 0f)
+
+        // --- who it is from ---
+        struct(S.KNOWN_SENDER, if (sender.seen > 0) 1f else 0f)
+        struct(S.SENDER_ENGAGEMENT, sender.engagement)
+        struct(S.SENDER_HOUR, sender.engagementAtHour)
 
         struct(S.OTP, if (looksLikeOtp(text)) 1f else 0f)
         struct(S.MONEY, if (MONEY.containsMatchIn(text)) 1f else 0f)

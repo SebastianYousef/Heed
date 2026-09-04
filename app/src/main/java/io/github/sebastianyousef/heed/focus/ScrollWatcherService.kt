@@ -38,13 +38,49 @@ class ScrollWatcherService : AccessibilityService() {
     private var burstStart = 0L
     private var longestBurst = 0L
 
+    /** Scrolling time accumulated across bursts in this visit to the app. */
+    private var cumulativeScrollMs = 0L
+
     /** Whether we have already interrupted during this stretch, so we do it once. */
     private var interventionShown = false
 
     override fun onServiceConnected() {
         connected = true
         instance = this
+        // Rules and settings are read on every scroll event; warming them here is what
+        // lets that path stay allocation-free.
+        repo = HeedRepository.get(this).also { it.warmCaches(scope) }
+
+        // Ask Android to stop telling us about apps we have no rule for.
+        //
+        // TYPE_WINDOW_CONTENT_CHANGED fires constantly in every app on the phone, and
+        // each one is a binder transaction into this process whether or not we do
+        // anything with it. Unfiltered, that was the single biggest thing Heed cost while
+        // sitting in the background: the launcher alone kept the main thread busy. The
+        // system can filter by package for free, so the interesting apps are named and
+        // everything else stops arriving at all.
+        scope.launch {
+            HeedRepository.get(this@ScrollWatcherService).dao.observeFocusRules().collect {
+                restrictToInterestingApps(it.map { rule -> rule.packageName })
+            }
+        }
     }
+
+    private fun restrictToInterestingApps(ruled: List<String>) {
+        val info = serviceInfo ?: return
+        val wanted = buildSet {
+            addAll(ruled)
+            // Known scrollers even without a rule, so measurement can start the moment
+            // one is installed rather than after a rule is created for it.
+            addAll(KnownScrollers.packages.keys)
+            // And the apps we exist to get out of the way of.
+            addAll(CriticalApps.securityPackages)
+        }
+        info.packageNames = wanted.toTypedArray()
+        runCatching { serviceInfo = info }
+    }
+
+    private var repo: HeedRepository? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
@@ -65,15 +101,25 @@ class ScrollWatcherService : AccessibilityService() {
                     stepAsideFor(pkg)
                     return
                 }
+                ForegroundApp.publish(pkg)
                 if (pkg != currentPackage) {
                     flush(now)
+                    resetVisit()
                     currentPackage = pkg
                     spanStart = now
                     interventionShown = false
                     lastPreciseCheck = 0L
                     checkOnOpen(pkg)
-                    checkSurface(pkg, event.source)
                 }
+                checkSurface(pkg, event.source)
+            }
+
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // Tapping a card is how you enter a recommended video, and it is the only
+                // moment where the intent is unambiguous — the feed's own thumbnails are
+                // still on screen either side of it. Clicks are rare, so this costs
+                // nothing between them.
+                checkClick(pkg, event.source)
             }
 
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
@@ -89,6 +135,7 @@ class ScrollWatcherService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 if (currentPackage != pkg) {
                     flush(now)
+                    resetVisit()
                     currentPackage = pkg
                     spanStart = now
                     interventionShown = false
@@ -108,6 +155,9 @@ class ScrollWatcherService : AccessibilityService() {
         // A burst is scrolling with no meaningful pause. Pausing to read breaks it, which
         // is exactly the distinction we care about.
         if (lastScrollAt == 0L || now - lastScrollAt > BURST_GAP_MS) {
+            // The burst that just ended is banked before a new one starts, so the total
+            // survives the pauses that reading anything necessarily creates.
+            if (lastScrollAt != 0L) cumulativeScrollMs += lastScrollAt - burstStart
             burstStart = now
         }
         longestBurst = maxOf(longestBurst, now - burstStart)
@@ -118,38 +168,80 @@ class ScrollWatcherService : AccessibilityService() {
         if (interventionShown) return
         if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
 
+        // Everything below this line used to be a coroutine launch, a Room query and a
+        // DataStore read — per scroll event. Now the common case, which is "this app has
+        // no rule", costs one hash lookup and returns.
+        val repo = repo ?: return
+        val rule = repo.cachedRuleFor(pkg) ?: return
+        if (rule.mode == FocusMode.OFF && rule.dailyScrollSeconds <= 0) return
+        if (CriticalApps.isProtected(pkg)) return
+
+        // A daily scrolling budget is the only thing here that needs a count from disk,
+        // and only for apps that have one set. Checked at most once every few seconds.
+        val needsBudget = rule.dailyScrollSeconds > 0
+        if (needsBudget && now - lastBudgetCheck < BUDGET_CHECK_MS) return
+
         val burstMs = longestBurst
         val events = scrollCount
-        scope.launch {
-            val repo = HeedRepository.get(this@ScrollWatcherService)
-            val enforcer = FocusEnforcer.from(repo.dao) { repo.isBedtimeNow() }
+        val cumulative = cumulativeScrollMs + (if (lastScrollAt > 0) now - burstStart else 0)
 
-            when (val verdict = enforcer.onScroll(pkg, events, burstMs)) {
-                is FocusEnforcer.Verdict.Block -> {
-                    interventionShown = true
-                    lastBlockAt = System.currentTimeMillis()
-                    flush(System.currentTimeMillis())
-                    FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
-                }
+        if (rule.mode == FocusMode.BLOCK &&
+            rule.detection == DetectionMode.BEHAVIOURAL &&
+            events >= rule.scrollBudgetEvents
+        ) {
+            interventionShown = true
+            lastBlockAt = now
+            flush(now)
+            FocusOverlay.bounce(
+                this,
+                "Not this one",
+                "You asked Heed to stop you scrolling ${rule.appLabel}.",
+            )
+            return
+        }
 
-                is FocusEnforcer.Verdict.Nudge -> {
-                    // The global threshold still governs how long is too long; the rule
-                    // only says this app is eligible to be nudged at all.
-                    val threshold = repo.settings.first().scrollInterventionMinutes
-                    if (threshold <= 0 || verdict.minutes < threshold) return@launch
-                    interventionShown = true
+        // Nudging on *cumulative* scrolling in this visit rather than on one unbroken
+        // burst. The old threshold asked for ten minutes without a three-second pause,
+        // which nobody has ever achieved — reading a single post resets it. It meant the
+        // nudge could not fire at all, which is why LinkedIn appeared to do nothing.
+        if (rule.mode == FocusMode.NUDGE) {
+            val threshold = repo.currentSettings().scrollInterventionMinutes
+            if (threshold > 0 && cumulative >= threshold * 60_000L) {
+                interventionShown = true
+                scope.launch {
                     FocusOverlay.show(
                         service = this@ScrollWatcherService,
                         packageName = pkg,
-                        scrollingMinutes = verdict.minutes,
+                        scrollingMinutes = (cumulative / 60_000L).toInt(),
                         trigger = repo.lastAttributedTriggerFor(pkg),
                     )
                 }
+                return
+            }
+        }
 
-                FocusEnforcer.Verdict.Allow -> Unit
+        if (needsBudget) {
+            lastBudgetCheck = now
+            scope.launch {
+                val scrolled = repo.dao.scrollSecondsSince(pkg, startOfToday())
+                if (scrolled < rule.dailyScrollSeconds) return@launch
+                interventionShown = true
+                lastBlockAt = System.currentTimeMillis()
+                FocusOverlay.bounce(
+                    this@ScrollWatcherService,
+                    "You're out of scrolling in ${rule.appLabel}",
+                    "Messages and everything else still work — this is just the feed.",
+                )
             }
         }
     }
+
+    private fun startOfToday(): Long = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
     /**
      * Precise matching: is this a screen the user has taught Heed to block?
@@ -167,56 +259,111 @@ class ScrollWatcherService : AccessibilityService() {
             }
             return
         }
-        if (System.currentTimeMillis() - lastBlockAt < BLOCK_COOLDOWN_MS) return
+        val now = System.currentTimeMillis()
+        if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
         if (CriticalApps.isProtected(pkg)) return
 
-        // The shipped anchors are checked here, on the service's own thread, because they
-        // are two indexed lookups against a node tree that is only valid for the length of
-        // this callback. Handing the node to a coroutine and reading it later is how you
-        // get an empty result from a recycled node — which looks exactly like "the feed
-        // isn't open" and fails silently.
+        // Cheap exits first, in the order they are cheap. Almost every event in a normal
+        // day dies on one of these three lines without allocating anything or touching
+        // the node tree, which is the whole point.
+        val repo = repo ?: return
+        val rule = repo.cachedRuleFor(pkg) ?: return
+        if (rule.detection != DetectionMode.PRECISE || rule.mode != FocusMode.BLOCK) return
+
         val anchors = KnownSurfaces.forPackage(pkg)
-        val root = if (anchors.isEmpty()) null else rootInActiveWindow
-        val hitAnchor = anchors.firstOrNull { anchor ->
+        val taught = repo.cachedSurfacesFor(pkg)
+        if (anchors.isEmpty() && taught.isEmpty()) return
+
+        // The node tree is only valid for the length of this callback, so anchors are
+        // resolved here rather than handed to a coroutine to read later — a recycled node
+        // returns nothing, which is indistinguishable from "the feed is not open".
+        val root = rootInActiveWindow
+        val hit = anchors.firstOrNull { anchor ->
             val present = when (anchor.match) {
                 KnownSurfaces.Match.SOURCE -> SurfaceCapture.sourceHasId(source, anchor.viewId)
-                KnownSurfaces.Match.WINDOW -> SurfaceCapture.hasAnchor(root, anchor.viewId)
+                KnownSurfaces.Match.WINDOW, KnownSurfaces.Match.CLICK ->
+                    SurfaceCapture.hasAnchor(root, anchor.viewId)
             }
             present && anchor.unless?.let { !SurfaceCapture.hasAnchor(root, it) } ?: true
         }
-        val tokens = if (hitAnchor == null) SurfaceCapture.fingerprint(rootInActiveWindow) else emptySet()
 
-        scope.launch {
-            val repo = HeedRepository.get(this@ScrollWatcherService)
-            val rule = repo.dao.focusRuleFor(pkg) ?: return@launch
-            if (rule.detection != DetectionMode.PRECISE) return@launch
-            // Only Block removes you from a screen. Nudge means friction, and bouncing
-            // someone out of a feed is not friction — it is the strongest thing this app
-            // does, so it stays behind the switch that says so.
-            if (rule.mode != FocusMode.BLOCK) return@launch
+        // Fingerprinting walks up to four hundred nodes, so it only happens for apps
+        // where the user has actually taught a screen and no shipped anchor matched.
+        val label = hit?.label ?: run {
+            if (taught.isEmpty()) return
+            val tokens = SurfaceCapture.fingerprint(root)
+            if (tokens.isEmpty()) return
+            if (SurfaceMatcher.match(tokens, taught.filter { !it.block }) != null) return
+            SurfaceMatcher.match(tokens, taught.filter { it.block })?.label ?: return
+        }
 
-            val taught = repo.dao.surfacesFor(pkg)
+        lastBlockAt = now
+        interventionShown = true
+        bounceOut(label, rule.appLabel)
+    }
 
-            // An explicit allow always wins. Teaching Heed "this screen is fine" has to
-            // beat a shipped anchor, or a false positive on somebody's phone is
-            // unfixable by them.
-            val allowed = taught.filter { !it.block }
-            if (allowed.isNotEmpty() && tokens.isNotEmpty() &&
-                SurfaceMatcher.match(tokens, allowed) != null
-            ) return@launch
+    /**
+     * A click that opens a recommended video.
+     *
+     * Blocking the feed's own screen is not enough on Snapchat, because Discover shares
+     * its tab with your friends' stories: while the friends' row is on screen the feed is
+     * deliberately left alone, and a tap from there goes straight into a recommended
+     * video. Catching the tap closes that gap without touching anything a friend posted.
+     */
+    private fun checkClick(pkg: String, source: android.view.accessibility.AccessibilityNodeInfo?) {
+        source ?: return
+        val repo = repo ?: return
+        val rule = repo.cachedRuleFor(pkg) ?: return
+        if (rule.detection != DetectionMode.PRECISE || rule.mode != FocusMode.BLOCK) return
+        if (CriticalApps.isProtected(pkg)) return
 
-            val label = hitAnchor?.label
-                ?: taught.firstOrNull { it.block && tokens.isNotEmpty() &&
-                    SurfaceMatcher.match(tokens, listOf(it)) != null }?.label
-                ?: return@launch
+        val clickAnchors = KnownSurfaces.forPackage(pkg).filter { it.match == KnownSurfaces.Match.CLICK }
+        if (clickAnchors.isEmpty()) return
 
-            lastBlockAt = System.currentTimeMillis()
-            interventionShown = true
-            FocusOverlay.bounce(
-                this@ScrollWatcherService,
-                "Not $label",
-                "The rest of ${rule.appLabel} still works.",
-            )
+        // Walk up a few parents: the tap lands on a thumbnail or a label inside the card,
+        // not on the card itself.
+        val ids = SurfaceCapture.selfAndAncestorIds(source, CLICK_ANCESTOR_DEPTH)
+        val hit = clickAnchors.firstOrNull { it.viewId in ids } ?: return
+
+        lastBlockAt = System.currentTimeMillis()
+        interventionShown = true
+        bounceOut(hit.label, rule.appLabel)
+    }
+
+    /**
+     * Leave the screen, and make sure we actually left.
+     *
+     * A single Back is not always enough — a feed hosted inside a pager can swallow it,
+     * and the user is left looking at a banner explaining a block that did not happen.
+     * So the exit is verified: if the same surface is still there a moment later, press
+     * again, and fall back to Home rather than keep pressing forever.
+     */
+    private fun bounceOut(label: String, appLabel: String) {
+        FocusOverlay.bounce(this, "Not $label", "The rest of $appLabel still works.")
+        escalate = 0
+        main.postDelayed(exitCheck, EXIT_RECHECK_MS)
+    }
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var escalate = 0
+
+    private val exitCheck = object : Runnable {
+        override fun run() {
+            val pkg = currentPackage ?: return
+            val anchors = KnownSurfaces.forPackage(pkg)
+            val root = rootInActiveWindow ?: return
+            val stillThere = anchors.any { a ->
+                a.match != KnownSurfaces.Match.SOURCE && SurfaceCapture.hasAnchor(root, a.viewId)
+            }
+            if (!stillThere) return
+            when (escalate) {
+                0 -> {
+                    escalate = 1
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    main.postDelayed(this, EXIT_RECHECK_MS)
+                }
+                else -> performGlobalAction(GLOBAL_ACTION_HOME)
+            }
         }
     }
 
@@ -274,12 +421,20 @@ class ScrollWatcherService : AccessibilityService() {
         burstStart = 0
     }
 
+    /** A new app is in front: the cumulative count belongs to the last one. */
+    private fun resetVisit() {
+        reset()
+        cumulativeScrollMs = 0
+        lastBudgetCheck = 0
+    }
+
     override fun onInterrupt() {
         flush(System.currentTimeMillis())
     }
 
     override fun onDestroy() {
         connected = false
+        ForegroundApp.clear()
         if (instance === this) instance = null
         flush(System.currentTimeMillis())
         scope.cancel()
@@ -288,6 +443,7 @@ class ScrollWatcherService : AccessibilityService() {
 
     private var lastBlockAt = 0L
     private var lastPreciseCheck = 0L
+    private var lastBudgetCheck = 0L
 
     companion object {
         /**
@@ -318,6 +474,15 @@ class ScrollWatcherService : AccessibilityService() {
          * battery disaster, and a second is fast enough to feel immediate.
          */
         private const val PRECISE_INTERVAL_MS = 1_000L
+
+        /** How often a daily scrolling budget is worth re-reading from disk. */
+        private const val BUDGET_CHECK_MS = 5_000L
+
+        /** How far up from a tapped view to look for the card that owns it. */
+        private const val CLICK_ANCESTOR_DEPTH = 6
+
+        /** Long enough for the app to finish animating away from the blocked screen. */
+        private const val EXIT_RECHECK_MS = 700L
 
         @Volatile var connected = false
             private set

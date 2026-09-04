@@ -52,6 +52,24 @@ class AttentionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var lastPackage: String? = null
     private var lastBlockAt = 0L
+    private var bedtimeNow = false
+    private var bedtimeCheckedAt = 0L
+    private var greyApplied = false
+
+    @Volatile private var screenOn = true
+
+    /**
+     * The screen's state, from the system rather than polled.
+     *
+     * Registering a receiver costs nothing while nothing happens, which is the opposite
+     * of asking every second whether anything has.
+     */
+    private val screenReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            screenOn = intent?.action != Intent.ACTION_SCREEN_OFF
+            if (!screenOn) lastPackage = null
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,46 +77,77 @@ class AttentionService : Service() {
         super.onCreate()
         startForeground()
         running = true
+        screenOn = getSystemService(android.os.PowerManager::class.java)?.isInteractive ?: true
+        registerReceiver(
+            screenReceiver,
+            android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            },
+        )
         scope.launch { loop() }
     }
 
     private suspend fun loop() {
         val repo = HeedRepository.get(this)
+        repo.warmCaches(scope)
         val usage = getSystemService(UsageStatsManager::class.java)
         while (scope.isActive) {
-            runCatching { tick(repo, usage) }
-            delay(POLL_MS)
+            // Nothing can be opened while the screen is off, so there is nothing to
+            // enforce. This is most of the day, and it used to be a UsageStatsManager
+            // query, two DataStore reads and two secure-setting reads every second of it.
+            if (screenOn) runCatching { tick(repo, usage) }
+            delay(
+                when {
+                    !screenOn -> IDLE_POLL_MS
+                    // A second and a half matters when something is actually going to
+                    // happen the moment an app opens — a limit closing it, colour
+                    // draining out of it. With nothing configured this service exists
+                    // only as a backstop for banking apps the scroll watcher cannot see,
+                    // and checking that eight times a minute is plenty.
+                    needsPromptness(repo) -> POLL_MS
+                    else -> LAZY_POLL_MS
+                }
+            )
         }
     }
 
-    private suspend fun tick(repo: HeedRepository, usage: UsageStatsManager?) {
-        val pkg = foregroundPackage(usage) ?: return
-        val settings = repo.settings.first()
-        val bedtime = repo.isBedtimeNow()
+    /** Whether anything configured needs the foreground app known quickly. */
+    private fun needsPromptness(repo: HeedRepository): Boolean {
+        val settings = repo.currentSettings()
+        if (settings.bedtimeEnabled || settings.grayscaleAtBedtime) return true
+        return repo.anyRuleNeedsForeground()
+    }
 
-        // Bedtime grayscale is about the whole phone, so it is checked before anything
-        // app-specific and holds even on the launcher.
-        val rule = repo.dao.focusRuleFor(pkg)
-        val wantGrey = (settings.grayscaleAtBedtime && bedtime) ||
+    private suspend fun tick(repo: HeedRepository, usage: UsageStatsManager?) {
+        // The accessibility service publishes the moment it sees a window change, which
+        // is faster than any poll — but only for apps it is allowed to see, so the poll
+        // remains the authority for noticing that you have *left* one.
+        val pkg = ForegroundApp.current(PUSH_TRUST_MS) ?: foregroundPackage(usage) ?: return
+        val settings = repo.currentSettings()
+
+        // Bedtime is a comparison against the clock, so it can only change on the minute.
+        val now = System.currentTimeMillis()
+        if (now - bedtimeCheckedAt > BEDTIME_TTL_MS) {
+            bedtimeCheckedAt = now
+            bedtimeNow = repo.isBedtimeNow()
+        }
+
+        val rule = repo.cachedRuleFor(pkg)
+        val wantGrey = (settings.grayscaleAtBedtime && bedtimeNow) ||
             (rule?.grayscale == true && !CriticalApps.isProtected(pkg))
-        Grayscale.apply(this, wantGrey)
+        // Only touched when the answer changes, so the common case reads nothing at all.
+        if (wantGrey != greyApplied) {
+            Grayscale.apply(this, wantGrey)
+            greyApplied = wantGrey
+        }
 
         if (pkg == lastPackage) return
         lastPackage = pkg
 
-        // Get out of the bank's way before it has finished starting.
-        //
-        // Banking and identity apps refuse to run while any accessibility service is
-        // enabled. Heed cannot argue with that and should not try, so when one opens it
-        // switches its own screen access off instead — which is the thing the user would
-        // have done manually, three taps deep in system settings, while standing at a
-        // till. This poll runs on usage statistics, so it still sees the launch after the
-        // accessibility service is gone.
         // A backstop only. The scroll watcher disables itself from its own callback,
         // which is both faster and the only path that cannot be defeated by a stale
-        // instance reference. This catches the case where it was bound but never
-        // delivered the window change — and it stays quiet unless it really did switch
-        // something off, so the user is never told about a pause that did not happen.
+        // instance reference. This stays quiet unless it really did switch something off.
         if (settings.pauseForBanking && CriticalApps.isSecuritySensitive(pkg) &&
             ScrollWatcherService.isEnabled(this)
         ) {
@@ -106,11 +155,13 @@ class AttentionService : Service() {
             return
         }
 
-        val now = System.currentTimeMillis()
         if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
         if (ScrollWatcherService.isEnabled(this)) return  // that service already handles it
 
-        val verdict = FocusEnforcer.from(repo.dao) { bedtime }.onAppOpened(pkg)
+        // Only an app with a limit can be blocked on opening, and that is a hash lookup.
+        if (rule == null || (rule.dailyUsageSeconds <= 0 && rule.dailyLaunchLimit <= 0 && !bedtimeNow)) return
+
+        val verdict = FocusEnforcer.from(repo.dao) { bedtimeNow }.onAppOpened(pkg)
         if (verdict is FocusEnforcer.Verdict.Block) {
             if (!Surfacer.canDrawOverlays(this)) return
             lastBlockAt = now
@@ -172,6 +223,7 @@ class AttentionService : Service() {
 
     override fun onDestroy() {
         running = false
+        runCatching { unregisterReceiver(screenReceiver) }
         Grayscale.release(this)
         scope.cancel()
         super.onDestroy()
@@ -182,7 +234,22 @@ class AttentionService : Service() {
             private set
 
         private const val NOTIFICATION_ID = 4_100
-        private const val POLL_MS = 1_000L
+        private const val POLL_MS = 1_500L
+
+        /** With the screen off there is nothing to see; this only keeps the loop alive. */
+        private const val IDLE_POLL_MS = 30_000L
+
+        /** Nothing to enforce; this is only watching for a bank to step aside from. */
+        private const val LAZY_POLL_MS = 8_000L
+
+        /**
+         * How recent a pushed foreground app has to be to be believed over a fresh poll.
+         * Short, because the push only ever arrives for apps the service can see.
+         */
+        private const val PUSH_TRUST_MS = 2_000L
+
+        /** Bedtime can only change on the minute, so asking more often is waste. */
+        private const val BEDTIME_TTL_MS = 60_000L
 
         /** Wide enough that a poll never falls into a gap between events. */
         private const val LOOKBACK_MS = 10_000L
