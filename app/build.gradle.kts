@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.sebastianyousef.heed"
         minSdk = 26          // NotificationListenerService removal-reasons + channels
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.9.3"
+        versionCode = 19
+        versionName = "1.0.0"
     }
 
     signingConfigs {
