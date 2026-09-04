@@ -507,22 +507,21 @@ class HeedRepository(private val context: Context) {
         io.github.sebastianyousef.heed.capture.NotificationMapper.appLabel(context, pkg)
 
     /**
-     * Install the known screen anchors for an app, so precise mode works immediately for
-     * the apps everybody wants it for instead of requiring you to teach it Spotlight first.
+     * Remove shipped anchors that earlier versions copied into the database.
+     *
+     * Seeding them as if the user had taught them was a mistake with a visible cost. The
+     * service already evaluates [KnownSurfaces] directly, so the rows were redundant; and
+     * because they were copies, they went stale the moment an anchor was corrected. The
+     * Snapchat rule ended up listing "Spotlight, Discover, Spotlight" — one of them
+     * pointing at a view id that no longer exists in the app at all.
+     *
+     * A taught fingerprint is always many tokens (capture requires at least eight), so a
+     * single-token surface can only have come from seeding. That makes them safe to
+     * remove without touching anything the user actually pointed at.
      */
-    suspend fun seedKnownSurfaces(pkg: String) {
-        val existing = dao.surfacesFor(pkg).map { it.fingerprint }.toSet()
-        for (anchor in io.github.sebastianyousef.heed.focus.KnownSurfaces.forPackage(pkg)) {
-            if (anchor.viewId in existing) continue
-            dao.insertSurface(
-                io.github.sebastianyousef.heed.focus.LearnedSurface(
-                    packageName = pkg,
-                    label = anchor.label,
-                    fingerprint = anchor.viewId,
-                    block = anchor.block,
-                    capturedAt = System.currentTimeMillis(),
-                )
-            )
+    suspend fun removeSeededSurfaces() {
+        for (surface in dao.allSurfaces()) {
+            if (surface.tokens.size <= 1) dao.deleteSurface(surface.id)
         }
     }
 
@@ -548,6 +547,7 @@ class HeedRepository(private val context: Context) {
         val seen = dao.allSessions(2000).map { it.packageName to it.appLabel }.distinct()
         for ((pkg, label) in seen) ensurePresetFor(pkg, label)
         repairBehaviouralBlocks()
+        removeSeededSurfaces()
     }
 
     /**
@@ -572,7 +572,6 @@ class HeedRepository(private val context: Context) {
             dao.upsertFocusRule(
                 rule.copy(detection = io.github.sebastianyousef.heed.focus.DetectionMode.PRECISE)
             )
-            seedKnownSurfaces(rule.packageName)
         }
     }
 

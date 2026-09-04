@@ -78,7 +78,7 @@ object KnownSurfaces {
         val block: Boolean = true,
         val match: Match = Match.WINDOW,
         /**
-         * A view whose presence vetoes this anchor.
+         * Views whose presence vetoes this anchor. Any one of them is enough.
          *
          * Needed because a screen is not always one thing. Snapchat's Community tab shows
          * your friends' stories along the top and the Discover feed underneath, in a
@@ -86,8 +86,15 @@ object KnownSurfaces {
          * the tab, while you are still looking at your friends. Guarding on the friends'
          * cards means the block only fires once they have scrolled away, which is exactly
          * the line the user drew: not the discovery feed, but never my friends.
+         *
+         * The second guard is subtler and was found by checking rather than reasoning.
+         * When a story opens full-screen, the feed underneath stays in the node tree
+         * *and still reports on-screen bounds* — so a friend's story opened after
+         * scrolling down would have matched the Discover feed and been blocked. A marker
+         * that only exists while a viewer is open closes that, and costs nothing when one
+         * is not.
          */
-        val unless: String? = null,
+        val unless: List<String> = emptyList(),
 
         /**
          * How much of the screen this must actually cover to count.
@@ -97,7 +104,44 @@ object KnownSurfaces {
          * share of the viewport before it can be said to be what you are looking at.
          */
         val minFraction: Float = 0f,
+
+        /**
+         * The named carve-out that controls [unless].
+         *
+         * A veto is a decision about what someone wants left alone, and that is not
+         * Heed's to make permanently. Naming it lets the app offer it as a switch: on,
+         * the guarded thing is protected; off, the anchor applies to the whole surface.
+         */
+        val exceptionKey: String? = null,
     )
+
+    /**
+     * A carve-out the user can turn on or off.
+     *
+     * Shipped rather than taught, because the interesting ones need knowledge of how an
+     * app is laid out that nobody should have to discover for themselves — but always
+     * optional, because "block the feed but not my friends" and "block all of it" are
+     * both legitimate and Heed has no business picking.
+     */
+    data class Exception(
+        val packageName: String,
+        val key: String,
+        val label: String,
+        val detail: String,
+    )
+
+    val exceptions = listOf(
+        Exception(
+            packageName = "com.snapchat.android",
+            key = "friends_stories",
+            label = "Allow friends' stories",
+            detail = "Keeps the friends' row and anything opened from it out of the " +
+                "block, so only the recommendations are stopped. Turn this off to treat " +
+                "everything on the Community tab as a feed.",
+        ),
+    )
+
+    fun exceptionsFor(pkg: String) = exceptions.filter { it.packageName == pkg }
 
     /**
      * The identifiers themselves are facts about other apps' layouts — anyone can read
@@ -131,8 +175,14 @@ object KnownSurfaces {
         // layout, because on this tab everything is present all of the time.
         Anchor(
             "com.snapchat.android", "Discover", "com.snapchat.android:id/df_large_story",
-            unless = "com.snapchat.android:id/friend_card_frame",
+            unless = listOf(
+                "com.snapchat.android:id/friend_card_frame",
+                // A full-screen viewer is open, so the feed behind it is not what is
+                // being looked at — whatever its bounds still claim.
+                "com.snapchat.android:id/base_image_layer_container",
+            ),
             minFraction = 0.55f,
+            exceptionKey = "friends_stories",
         ),
         // Tapping a Discover card is the other way into a recommended video, and the one
         // the guard above deliberately leaves open: while your friends' stories are on

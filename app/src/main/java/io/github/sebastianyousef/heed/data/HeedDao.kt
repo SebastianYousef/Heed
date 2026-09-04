@@ -404,6 +404,9 @@ interface HeedDao {
     @Query("SELECT * FROM learned_surfaces ORDER BY capturedAt DESC")
     fun observeSurfaces(): Flow<List<LearnedSurface>>
 
+    @Query("SELECT * FROM learned_surfaces")
+    suspend fun allSurfaces(): List<LearnedSurface>
+
     @Query("DELETE FROM learned_surfaces WHERE id = :id")
     suspend fun deleteSurface(id: Long)
 

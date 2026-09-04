@@ -73,7 +73,26 @@ data class FocusRule(
      * app simply stops being fun to look at.
      */
     val grayscale: Boolean = false,
+
+    /**
+     * Carve-outs the user has switched off, comma separated.
+     *
+     * Stored as the *disabled* set rather than the enabled one so that a carve-out added
+     * in a later version is on by default for everybody — which is the safe direction,
+     * since a new exception can only ever protect something that was previously blocked.
+     */
+    val disabledExceptions: String = "",
 ) {
+    fun isExceptionEnabled(key: String): Boolean =
+        key !in disabledExceptions.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    fun withException(key: String, enabled: Boolean): FocusRule {
+        val current = disabledExceptions.split(',').map { it.trim() }
+            .filter { it.isNotEmpty() }.toMutableSet()
+        if (enabled) current.remove(key) else current.add(key)
+        return copy(disabledExceptions = current.sorted().joinToString(","))
+    }
+
     /**
      * A rule that asks only for a grey screen, and for nothing to be taken away.
      *

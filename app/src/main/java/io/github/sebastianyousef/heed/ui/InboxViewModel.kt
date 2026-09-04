@@ -222,6 +222,10 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         }.flowOn(Dispatchers.Default)
     }
 
+    /** Turn one of an app's shipped carve-outs on or off. */
+    fun setException(rule: io.github.sebastianyousef.heed.focus.FocusRule, key: String, on: Boolean) =
+        setFocusRule(rule.withException(key, on))
+
     fun setGrayscale(pkg: String, label: String, on: Boolean) = viewModelScope.launch {
         val existing = repo.dao.focusRuleFor(pkg)
             ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, label)
@@ -307,11 +311,11 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             if (existing != null && loosens(existing, rule)) return@launch
         }
         repo.dao.upsertFocusRule(rule)
-        // Turning on precise matching should just work for Snapchat and friends, rather
-        // than presenting an empty list and an instruction to go teach it something.
-        if (rule.detection == io.github.sebastianyousef.heed.focus.DetectionMode.PRECISE) {
-            repo.seedKnownSurfaces(rule.packageName)
-        }
+        // Nothing to seed. Precise matching reads the shipped anchors directly, and
+        // copying them into the database as if the user had taught them is what left
+        // Snapchat listing "Spotlight, Discover, Spotlight" — three rows, one of them
+        // naming a view that no longer exists. The screen states what it already knows
+        // from the anchors themselves.
     }
 
     private fun loosens(

@@ -430,6 +430,35 @@ Blocking uses `GLOBAL_ACTION_BACK`, not `GLOBAL_ACTION_HOME`. You opened Snapcha
 message someone; throwing you out of the whole app to stop you seeing a feed punishes the
 thing you actually came for. Back drops you out of the feed and leaves you where you were.
 
+### Friends' stories: checked, not assumed
+
+The obvious worry with a shipped anchor is that it catches something it should not. It was
+worth opening one friend's story and looking, and the answer is on the device:
+
+| | `spotlight_container` | `base_image_layer_container` | `df_large_story` visible |
+|---|---|---|---|
+| Spotlight | ✓ | ✓ | — |
+| Discover story | ✓ | ✓ | — |
+| **A friend's story** | **absent** | ✓ | 73% (behind the viewer) |
+| Community feed | absent | absent | 73% |
+
+Friends' stories use a different container, so the recommendations anchor cannot reach
+them. But the second column is the interesting one. When a story opens full-screen the
+feed underneath **stays in the node tree and keeps reporting on-screen bounds** — so the
+Discover anchor matched at 73% while a friend's story was open, and only the friends'-row
+veto was preventing a block. Open a friend's story after scrolling past that row and it
+would have been blocked.
+
+`base_image_layer_container` exists only while a viewer is open, so it now vetoes the feed
+anchor too. Two independent reasons a friend's story cannot be blocked, rather than one
+that happened to hold.
+
+And it is a **switch**, not a decision. "Block the feed but not my friends" and "block all
+of it" are both legitimate, and which is right is not Heed's to fix permanently — so
+anchors can name a carve-out, and the app offers it per rule. Stored as the *disabled*
+set, so a carve-out added later is on by default: a new exception can only ever protect
+something that was previously blocked, which is the safe direction to be wrong in.
+
 Two properties keep this safe. Heed only ever blocks on a **positive** match, so anything
 it cannot name is allowed — a redesign that breaks every id above fails open, into doing
 nothing. And a taught "allow" surface beats a shipped anchor, so a false positive is

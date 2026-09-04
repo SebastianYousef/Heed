@@ -294,9 +294,11 @@ class ScrollWatcherService : AccessibilityService() {
             // The veto is judged on what is visible too: a friends' row scrolled off the
             // top is still in the layout, and treating that as "friends are on screen"
             // is why Discover never blocked at all.
-            present && anchor.unless?.let {
-                !SurfaceCapture.hasVisibleAnchor(root, it, height, VETO_MIN_FRACTION)
-            } ?: true
+            // A carve-out the user has switched off stops vetoing.
+            val guarded = anchor.exceptionKey?.let { rule.isExceptionEnabled(it) } ?: true
+            present && (!guarded || anchor.unless.none {
+                SurfaceCapture.hasVisibleAnchor(root, it, height, VETO_MIN_FRACTION)
+            })
         }
 
         // Fingerprinting walks up to four hundred nodes, so it only happens for apps

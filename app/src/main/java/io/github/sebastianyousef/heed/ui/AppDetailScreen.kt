@@ -304,6 +304,25 @@ private fun DetectionPicker(
     )
 
     if (rule.detection == DetectionMode.PRECISE) {
+        val exceptions = KnownSurfaces.exceptionsFor(rule.packageName)
+        exceptions.forEach { exception ->
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(exception.label, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        exception.detail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = rule.isExceptionEnabled(exception.key),
+                    onCheckedChange = { vm.setException(rule, exception.key, it) },
+                )
+            }
+        }
+
         if (known.isEmpty() && surfaces.isEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(
