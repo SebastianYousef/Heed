@@ -27,6 +27,17 @@ import io.github.sebastianyousef.heed.digest.DigestWorker
 import io.github.sebastianyousef.heed.export.Exporter
 import io.github.sebastianyousef.heed.export.RedactionLevel
 
+/** One calendar day's screen time, for the chart. */
+data class DayTotal(val startOfDay: Long, val totalMs: Long)
+
+private fun startOfDaysAgo(days: Int): Long = java.util.Calendar.getInstance().apply {
+    set(java.util.Calendar.HOUR_OF_DAY, 0)
+    set(java.util.Calendar.MINUTE, 0)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+    add(java.util.Calendar.DAY_OF_YEAR, -days)
+}.timeInMillis
+
 enum class InboxTab(val label: String) {
     NEEDED("Needed"),
     FILTERED("Filtered"),
@@ -91,6 +102,53 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             io.github.sebastianyousef.heed.usage.AttentionStats.build(notifications, sessions)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The last seven days, one bucket per calendar day, oldest first.
+     *
+     * A single day's figure has no meaning on its own — nobody knows whether four hours
+     * is a lot for them. Seven of them next to each other does, and it is the only view
+     * that shows whether a rule you set on Tuesday actually changed anything.
+     */
+    val usageDays: StateFlow<List<DayTotal>> =
+        repo.dao.observeSessionsSince(startOfDaysAgo(6)).map { sessions ->
+            (6 downTo 0).map { back ->
+                val from = startOfDaysAgo(back)
+                val to = startOfDaysAgo(back - 1)
+                DayTotal(
+                    startOfDay = from,
+                    totalMs = sessions.filter { it.startedAt in from until to }
+                        .sumOf { it.durationMs },
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Per-app totals over the same week, for the "last 7 days" view of the list. */
+    val weekByApp: StateFlow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> =
+        repo.dao.observeSessionsSince(startOfDaysAgo(6)).map { sessions ->
+            sessions.groupBy { it.packageName }
+                .map { (pkg, rows) ->
+                    io.github.sebastianyousef.heed.data.AppUsageRow(
+                        packageName = pkg,
+                        appLabel = rows.first().appLabel,
+                        totalMs = rows.sumOf { it.durationMs },
+                        launches = rows.size,
+                    )
+                }
+                .sortedByDescending { it.totalMs }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setGrayscale(pkg: String, label: String, on: Boolean) = viewModelScope.launch {
+        val existing = repo.dao.focusRuleFor(pkg)
+            ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, label)
+        repo.dao.upsertFocusRule(existing.copy(grayscale = on))
+        repo.syncAttentionService()
+    }
+
+    fun setGrayscaleAtBedtime(on: Boolean) = viewModelScope.launch {
+        repo.settingsStore.setGrayscaleAtBedtime(on)
+        repo.syncAttentionService()
+    }
+
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
 
@@ -152,6 +210,7 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
     val strict: StateFlow<Boolean> = _strict
 
     fun setFocusRule(rule: io.github.sebastianyousef.heed.focus.FocusRule) = viewModelScope.launch {
+        repo.syncAttentionService()
         // Strict mode lets you tighten a rule at any time; loosening waits.
         if (repo.strictActive()) {
             val existing = repo.dao.focusRuleFor(rule.packageName)
@@ -187,6 +246,19 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     fun deleteSurface(id: Long) = viewModelScope.launch { repo.dao.deleteSurface(id) }
+
+    /**
+     * Turns off Heed's own accessibility service.
+     *
+     * Here because banking apps refuse to run while any accessibility service is enabled,
+     * and the alternative — telling people to go and find it in system settings — is how
+     * you get uninstalled by someone who just wanted to pay for lunch. Android has no way
+     * to switch it back on from inside an app, so this is deliberately one-way, and the
+     * UI says so.
+     */
+    fun pauseScreenAccess() {
+        io.github.sebastianyousef.heed.focus.ScrollWatcherService.pause()
+    }
 
     fun setBedtime(enabled: Boolean, start: Int, end: Int) = viewModelScope.launch {
         repo.settingsStore.setBedtime(enabled, start, end)

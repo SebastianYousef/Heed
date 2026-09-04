@@ -395,7 +395,7 @@ class HeedRepository(private val context: Context) {
                     packageName = pkg,
                     label = anchor.label,
                     fingerprint = anchor.viewId,
-                    block = true,
+                    block = anchor.block,
                     capturedAt = System.currentTimeMillis(),
                 )
             )
@@ -423,9 +423,55 @@ class HeedRepository(private val context: Context) {
     suspend fun seedPresetsFromHistory() {
         val seen = dao.allSessions(2000).map { it.packageName to it.appLabel }.distinct()
         for ((pkg, label) in seen) ensurePresetFor(pkg, label)
+        repairBehaviouralBlocks()
+    }
+
+    /**
+     * Move existing rules off behavioural blocking wherever precise blocking is possible.
+     *
+     * This repairs a rule that was already saved, which is unusual and deliberate. A
+     * Block rule on Snapchat in Automatic mode does not do the thing its own description
+     * promises: it cannot see Spotlight, so it fires on the first few scrolls of whatever
+     * you happen to be looking at, which in practice meant being thrown out of a
+     * conversation with a friend mid-sentence. Leaving that rule as the user saved it
+     * would be respecting the letter of a setting while breaking what it was for.
+     *
+     * Only touched for apps Heed ships anchors for, and only the detection mode — the
+     * block itself, which is what the user actually asked for, is preserved and starts
+     * working properly.
+     */
+    private suspend fun repairBehaviouralBlocks() {
+        for (rule in dao.allFocusRules()) {
+            if (!io.github.sebastianyousef.heed.focus.KnownSurfaces.hasBlockAnchors(rule.packageName)) continue
+            if (rule.detection != io.github.sebastianyousef.heed.focus.DetectionMode.BEHAVIOURAL) continue
+            if (rule.mode == io.github.sebastianyousef.heed.focus.FocusMode.OFF) continue
+            dao.upsertFocusRule(
+                rule.copy(detection = io.github.sebastianyousef.heed.focus.DetectionMode.PRECISE)
+            )
+            seedKnownSurfaces(rule.packageName)
+        }
     }
 
     /** Whether the clock is inside the user's bedtime window right now. */
+    /**
+     * Start or stop the foreground enforcement service to match what the rules need.
+     *
+     * Called whenever a rule changes rather than left running always, because the service
+     * costs a permanent notification and a once-a-second poll. An app about reducing the
+     * clutter on your phone does not get to add a row to your shade for a feature you are
+     * not using.
+     */
+    suspend fun syncAttentionService() {
+        val settings = settingsStore.settings.first()
+        val rules = dao.allFocusRules()
+        val needed = settings.grayscaleAtBedtime ||
+            settings.bedtimeEnabled ||
+            rules.any {
+                it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
+            }
+        io.github.sebastianyousef.heed.focus.AttentionService.syncWith(context, needed)
+    }
+
     suspend fun isBedtimeNow(): Boolean {
         val s = settingsStore.settings.first()
         if (!s.bedtimeEnabled) return false

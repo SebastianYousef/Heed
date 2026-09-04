@@ -2,16 +2,23 @@ package io.github.sebastianyousef.heed.ui
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
@@ -37,49 +44,61 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import io.github.sebastianyousef.heed.focus.DetectionMode
+import io.github.sebastianyousef.heed.data.AppUsageRow
 import io.github.sebastianyousef.heed.focus.FocusMode
 import io.github.sebastianyousef.heed.focus.FocusRule
-import io.github.sebastianyousef.heed.focus.KnownScrollers
-import io.github.sebastianyousef.heed.focus.LearnedSurface
+import io.github.sebastianyousef.heed.focus.Grayscale
 import io.github.sebastianyousef.heed.focus.ScrollWatcherService
-import io.github.sebastianyousef.heed.usage.AttentionStat
 import io.github.sebastianyousef.heed.usage.UsageTracker
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Time and rules, arranged around the fact that most apps are not the problem.
+ * Where your time went, and what to do about it.
  *
- * The previous version listed every app you had ever opened with identical weight, which
- * buried Snapchat behind an authenticator and a PDF viewer. Now apps that carry a feed
- * come first and everything else collapses into a tail you can ignore.
+ * The previous version put every control for every app on this one screen: three sliders,
+ * two sets of chips and a surface list per app, all inline, all expanded in place. It
+ * technically worked and it was unusable — you could not answer "how long was I on my
+ * phone today" without scrolling past four rule editors.
+ *
+ * So this screen now answers exactly one question, and the rules moved to
+ * [AppDetailScreen] behind a tap. Overview first, controls second.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttentionScreen(vm: InboxViewModel, onSettings: () -> Unit) {
+fun AttentionScreen(
+    vm: InboxViewModel,
+    onSettings: () -> Unit,
+    onOpenApp: (String) -> Unit,
+) {
     val context = LocalContext.current
     val stats by vm.attention.collectAsState()
     val rules by vm.focusRules.collectAsState()
-    val surfaces by vm.surfaces.collectAsState()
     val settings by vm.settings.collectAsState()
-    val strict by vm.strict.collectAsState()
+    val days by vm.usageDays.collectAsState()
+    val week by vm.weekByApp.collectAsState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var usageGranted by remember { mutableStateOf(UsageTracker.hasPermission(context)) }
     var watcherEnabled by remember { mutableStateOf(ScrollWatcherService.isEnabled(context)) }
-    var showAll by remember { mutableStateOf(false) }
+    var greyAvailable by remember { mutableStateOf(Grayscale.isAvailable(context)) }
+    var range by remember { mutableStateOf(Range.TODAY) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 usageGranted = UsageTracker.hasPermission(context)
                 watcherEnabled = ScrollWatcherService.isEnabled(context)
+                greyAvailable = Grayscale.isAvailable(context)
                 if (usageGranted) vm.refreshUsage()
                 vm.refreshStrict()
             }
@@ -88,12 +107,13 @@ fun AttentionScreen(vm: InboxViewModel, onSettings: () -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // An app belongs in the top section if it carries a feed or you have said something
-    // about it. Everything else is noise in this context, however much you use it.
-    val feeds = stats.filter {
-        KnownScrollers.isKnown(it.packageName) || rules.containsKey(it.packageName)
-    }
-    val rest = stats.filter { it !in feeds && it.todayMs > 60_000 }
+    val today: List<AppUsageRow> = stats
+        .filter { it.todayMs > 0 }
+        .map { AppUsageRow(it.packageName, it.appLabel, it.todayMs, it.launchesToday) }
+        .sortedByDescending { it.totalMs }
+
+    val rows = if (range == Range.TODAY) today else week
+    val total = rows.sumOf { it.totalMs }
 
     Scaffold(
         topBar = {
@@ -112,72 +132,65 @@ fun AttentionScreen(vm: InboxViewModel, onSettings: () -> Unit) {
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item { TodayCard(stats) }
+            item {
+                ScreenTimeCard(
+                    totalMs = total,
+                    opens = rows.sumOf { it.launches },
+                    range = range,
+                    days = days,
+                    onRange = { range = it },
+                )
+            }
 
             if (!usageGranted) {
                 item {
-                    PermissionCard(
+                    SetupCard(
                         "Let Heed see which apps you use",
-                        "Without this it knows what interrupted you but not what that cost.",
+                        "This is the one permission the whole Attention half needs. " +
+                            "Without it there is no screen time to show.",
                         "Grant usage access",
                     ) { context.startActivity(UsageTracker.settingsIntent(context)) }
                 }
             }
-            if (!watcherEnabled) {
-                item {
-                    PermissionCard(
-                        "Let Heed see scrolling",
-                        "For most apps it only measures how fast and how long you scroll. " +
-                            "For apps you set to Precise it reads the layout's structure so " +
-                            "it can tell a discovery feed from your friends' stories — never " +
-                            "the text on your screen.",
-                        "Open accessibility settings",
-                    ) { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                }
+
+            item {
+                BedtimeCard(
+                    settings.bedtimeEnabled,
+                    settings.bedtimeStart,
+                    settings.bedtimeEnd,
+                    settings.grayscaleAtBedtime,
+                    greyAvailable,
+                    vm::setBedtime,
+                    vm::setGrayscaleAtBedtime,
+                )
             }
 
-            item { BedtimeCard(settings.bedtimeEnabled, settings.bedtimeStart, settings.bedtimeEnd, vm::setBedtime) }
+            item { ScreenAccessCard(watcherEnabled, vm, context) }
 
-            if (feeds.isNotEmpty()) {
-                item { SectionHeader("Feeds") }
-                items(feeds, key = { it.packageName }) { stat ->
-                    AppCard(
-                        stat = stat,
-                        rule = rules[stat.packageName] ?: FocusRule(stat.packageName, stat.appLabel),
-                        surfaces = surfaces[stat.packageName].orEmpty(),
-                        strict = strict,
-                        vm = vm,
-                    )
-                }
-            }
-
-            if (rest.isNotEmpty()) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        SectionHeader("Everything else")
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { showAll = !showAll }) {
-                            Text(if (showAll) "Hide" else "Show ${rest.size}")
-                        }
-                    }
-                }
-                if (showAll) {
-                    items(rest, key = { it.packageName }) { stat ->
-                        AppCard(
-                            stat = stat,
-                            rule = rules[stat.packageName] ?: FocusRule(stat.packageName, stat.appLabel),
-                            surfaces = surfaces[stat.packageName].orEmpty(),
-                            strict = strict,
-                            vm = vm,
-                        )
-                    }
-                }
-            }
-
-            if (stats.isEmpty()) {
+            if (rows.isNotEmpty()) {
                 item {
                     Text(
-                        "Nothing yet. Give it a day of normal use.",
+                        if (range == Range.TODAY) "Today, app by app" else "Last 7 days, app by app",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                    )
+                }
+                items(rows, key = { it.packageName }) { row ->
+                    AppRow(
+                        row = row,
+                        shareOfTotal = if (total > 0) row.totalMs.toFloat() / total else 0f,
+                        rule = rules[row.packageName],
+                        onClick = { onOpenApp(row.packageName) },
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        if (usageGranted) {
+                            "Nothing recorded yet. Give it a few hours of normal use."
+                        } else {
+                            "Grant usage access above and this fills in."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
@@ -188,19 +201,17 @@ fun AttentionScreen(vm: InboxViewModel, onSettings: () -> Unit) {
     }
 }
 
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
-    )
-}
+private enum class Range(val label: String) { TODAY("Today"), WEEK("7 days") }
 
+/** Headline number, range switch, and the week at a glance. */
 @Composable
-private fun TodayCard(stats: List<AttentionStat>) {
-    val total = stats.sumOf { it.todayMs }
-    val opens = stats.sumOf { it.launchesToday }
+private fun ScreenTimeCard(
+    totalMs: Long,
+    opens: Int,
+    range: Range,
+    days: List<DayTotal>,
+    onRange: (Range) -> Unit,
+) {
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -208,22 +219,168 @@ private fun TodayCard(stats: List<AttentionStat>) {
         ),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                formatDuration(total),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Text(
-                "on your phone today · $opens app opens",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        formatDuration(totalMs),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        "on your phone · $opens app opens",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Range.entries.forEach { option ->
+                        FilterChip(
+                            selected = range == option,
+                            onClick = { onRange(option) },
+                            label = { Text(option.label) },
+                        )
+                    }
+                }
+            }
+
+            if (days.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                WeekChart(days)
+            }
         }
     }
 }
 
+/**
+ * Seven bars, scaled to the worst day.
+ *
+ * Scaled to the peak rather than to a fixed ceiling on purpose: an absolute axis makes a
+ * good week and a bad week look nearly identical, and the useful signal here is the
+ * shape, not the absolute height.
+ */
 @Composable
-private fun BedtimeCard(enabled: Boolean, start: Int, end: Int, onChange: (Boolean, Int, Int) -> Unit) {
+private fun WeekChart(days: List<DayTotal>) {
+    val peak = (days.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
+    val formatter = remember { SimpleDateFormat("EEE", Locale.getDefault()) }
+
+    Row(
+        Modifier.fillMaxWidth().height(72.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        days.forEach { day ->
+            Column(
+                Modifier.weight(1f).fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                val fraction = (day.totalMs.toFloat() / peak).coerceIn(0.02f, 1f)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = true),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(fraction)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.onPrimaryContainer)
+                    )
+                }
+                Text(
+                    formatter.format(Date(day.startOfDay)).take(1),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** One app: icon, name, time, and a bar showing its share of the period. */
+@Composable
+private fun AppRow(
+    row: AppUsageRow,
+    shareOfTotal: Float,
+    rule: FocusRule?,
+    onClick: () -> Unit,
+) {
+    val label = rememberAppLabel(row.packageName, row.appLabel)
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppIcon(row.packageName, label)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        buildString {
+                            append("${row.launches} opens")
+                            ruleSummary(rule)?.let { append(" · $it") }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (rule != null && rule.mode != FocusMode.OFF) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                Text(
+                    formatDuration(row.totalMs),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(shareOfTotal.coerceIn(0f, 1f))
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            }
+        }
+    }
+}
+
+/** The one-line version of a rule, for the list. Null when there is nothing to say. */
+private fun ruleSummary(rule: FocusRule?): String? {
+    rule ?: return null
+    val parts = buildList {
+        when (rule.mode) {
+            FocusMode.BLOCK -> add("blocked")
+            FocusMode.NUDGE -> add("nudges")
+            FocusMode.OFF -> Unit
+        }
+        if (rule.dailyUsageSeconds > 0) add("${rule.dailyUsageSeconds / 60} min limit")
+        if (rule.dailyLaunchLimit > 0) add("${rule.dailyLaunchLimit} opens")
+        if (rule.grayscale) add("grey")
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+@Composable
+private fun BedtimeCard(
+    enabled: Boolean,
+    start: Int,
+    end: Int,
+    grey: Boolean,
+    greyAvailable: Boolean,
+    onChange: (Boolean, Int, Int) -> Unit,
+    onGrey: (Boolean) -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -231,8 +388,8 @@ private fun BedtimeCard(enabled: Boolean, start: Int, end: Int, onChange: (Boole
                     Text("Bedtime", style = MaterialTheme.typography.titleSmall)
                     Text(
                         if (enabled) {
-                            "Every app with a rule is closed between $start:00 and $end:00. " +
-                                "Calls and alarms are untouched."
+                            "Apps with a rule are closed between $start:00 and $end:00. " +
+                                "Calls, alarms and authenticators are untouched."
                         } else {
                             "Off."
                         },
@@ -242,7 +399,31 @@ private fun BedtimeCard(enabled: Boolean, start: Int, end: Int, onChange: (Boole
                 }
                 Switch(checked = enabled, onCheckedChange = { onChange(it, start, end) })
             }
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Grey screen at night", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (greyAvailable) {
+                            "Drains the colour out of the whole screen during those hours. " +
+                                "Nothing is blocked — the phone just stops being interesting."
+                        } else {
+                            "Needs a one-time setup over USB. Open Settings to see the command."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = grey && greyAvailable,
+                    enabled = greyAvailable,
+                    onCheckedChange = onGrey,
+                )
+            }
+
             if (enabled) {
+                Spacer(Modifier.height(4.dp))
                 Text("Starts at $start:00", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = start.toFloat(),
@@ -260,8 +441,60 @@ private fun BedtimeCard(enabled: Boolean, start: Int, end: Int, onChange: (Boole
     }
 }
 
+/**
+ * The accessibility service, and the banking-app problem it causes.
+ *
+ * This card is blunt about the trade-off because the alternative is worse: someone
+ * discovers at a checkout that their bank will not open, has no idea Heed is why, and
+ * uninstalls it. Saying so up front, with the off switch right there, costs a few lines
+ * and keeps the app installed.
+ */
 @Composable
-private fun PermissionCard(title: String, body: String, action: String, onClick: () -> Unit) {
+private fun ScreenAccessCard(
+    enabled: Boolean,
+    vm: InboxViewModel,
+    context: android.content.Context,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Screen access", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (enabled) {
+                    "On. Heed can measure scrolling and tell one feed from another — the " +
+                        "only way to block Snapchat's Spotlight without also blocking your " +
+                        "chats.\n\nBanking apps refuse to run while any accessibility " +
+                        "service is enabled. If your bank stops opening, this is why."
+                } else {
+                    "Off. Time limits, opens, bedtime and grey screen all still work — " +
+                        "those run on usage statistics and need nothing from your screen.\n\n" +
+                        "Turning it on adds scrolling measurement and per-feed blocking, " +
+                        "and will stop banking apps from starting."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            if (enabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { vm.pauseScreenAccess() }) {
+                        Text("Turn off for banking")
+                    }
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }) { Text("System settings") }
+                }
+            } else {
+                OutlinedButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }) { Text("Turn on screen access") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupCard(title: String, body: String, action: String, onClick: () -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -278,206 +511,7 @@ private fun PermissionCard(title: String, body: String, action: String, onClick:
     }
 }
 
-@Composable
-private fun AppCard(
-    stat: AttentionStat,
-    rule: FocusRule,
-    surfaces: List<LearnedSurface>,
-    strict: Boolean,
-    vm: InboxViewModel,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stat.appLabel, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "${stat.launchesToday} opens today" +
-                            if (stat.alerts > 0) " · ${stat.alerts} interruptions" else "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    formatDuration(stat.todayMs),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            if (stat.alerts > 0 && stat.minutesPerAlert >= 1) {
-                Text(
-                    "About ${stat.minutesPerAlert.roundToInt()} minutes of you per notification.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(
-                    when {
-                        expanded -> "Hide"
-                        rule.mode == FocusMode.BLOCK -> "Blocked"
-                        rule.mode == FocusMode.NUDGE && rule.fromPreset -> "Nudges you (preset)"
-                        rule.mode == FocusMode.NUDGE -> "Nudges you"
-                        rule.dailyUsageSeconds > 0 || rule.dailyLaunchLimit > 0 -> "Limited"
-                        else -> "Set a rule"
-                    }
-                )
-            }
-            if (expanded) RuleEditor(rule, surfaces, strict, vm)
-        }
-    }
-}
-
-@Composable
-private fun RuleEditor(
-    rule: FocusRule,
-    surfaces: List<LearnedSurface>,
-    strict: Boolean,
-    vm: InboxViewModel,
-) {
-    val onRule = vm::setFocusRule
-    Column {
-        if (strict) {
-            Text(
-                "Strict mode is on. You can tighten these, but not loosen them.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(Modifier.height(6.dp))
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FocusMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = rule.mode == mode,
-                    onClick = { onRule(rule.copy(mode = mode, fromPreset = false)) },
-                    label = {
-                        Text(
-                            when (mode) {
-                                FocusMode.OFF -> "Measure"
-                                FocusMode.NUDGE -> "Nudge"
-                                FocusMode.BLOCK -> "Block"
-                            }
-                        )
-                    },
-                )
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text("How it decides you're in a feed", style = MaterialTheme.typography.labelMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DetectionMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = rule.detection == mode,
-                    onClick = { onRule(rule.copy(detection = mode)) },
-                    label = {
-                        Text(if (mode == DetectionMode.BEHAVIOURAL) "Automatic" else "Precise")
-                    },
-                )
-            }
-        }
-        Text(
-            if (rule.detection == DetectionMode.BEHAVIOURAL) {
-                "Automatic watches how fast and how long you scroll. It never looks at your " +
-                    "screen, but it cannot tell a discovery feed from a chat list — both are " +
-                    "scrolling."
-            } else {
-                "Precise matches the screen against ones you've taught it, so it can block " +
-                    "Discovery and leave your friends' stories alone. It reads the layout's " +
-                    "structure — view ids and class names — never the text on it."
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (rule.detection == DetectionMode.PRECISE) {
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { vm.armSurfaceCapture() }) { Text("Teach a screen") }
-            Text(
-                "Tap this, then go and open the screen you mean. Heed records the next one " +
-                    "it sees. Do it once for Discovery, and again for your friends' stories " +
-                    "if you want that one left alone.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            surfaces.forEach { surface ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        surface.label,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FilterChip(
-                        selected = surface.block,
-                        onClick = { vm.setSurfaceBlock(surface, !surface.block) },
-                        label = { Text(if (surface.block) "Blocked" else "Allowed") },
-                    )
-                    TextButton(onClick = { vm.deleteSurface(surface.id) }) { Text("Forget") }
-                }
-            }
-        }
-
-        if (rule.mode == FocusMode.BLOCK && rule.detection == DetectionMode.BEHAVIOURAL) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Stops you after ${rule.scrollBudgetEvents} scrolls in one go.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Slider(
-                value = rule.scrollBudgetEvents.toFloat(),
-                onValueChange = { onRule(rule.copy(scrollBudgetEvents = it.roundToInt())) },
-                valueRange = 1f..30f, steps = 28,
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-        LimitSlider(
-            label = if (rule.dailyScrollSeconds > 0) {
-                "${rule.dailyScrollSeconds / 60} min of scrolling a day — the rest of the app stays open"
-            } else "No scrolling budget",
-            value = (rule.dailyScrollSeconds / 60).toFloat(),
-            max = 60f,
-        ) { onRule(rule.copy(dailyScrollSeconds = it * 60)) }
-
-        LimitSlider(
-            label = if (rule.dailyUsageSeconds > 0) {
-                "${rule.dailyUsageSeconds / 60} min in the app a day"
-            } else "No time limit",
-            value = (rule.dailyUsageSeconds / 60).toFloat(),
-            max = 180f,
-        ) { onRule(rule.copy(dailyUsageSeconds = it * 60)) }
-
-        LimitSlider(
-            label = if (rule.dailyLaunchLimit > 0) {
-                "${rule.dailyLaunchLimit} opens a day"
-            } else "No limit on opens",
-            value = rule.dailyLaunchLimit.toFloat(),
-            max = 50f,
-        ) { onRule(rule.copy(dailyLaunchLimit = it)) }
-    }
-}
-
-@Composable
-private fun LimitSlider(label: String, value: Float, max: Float, onChange: (Int) -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Slider(
-        value = value.coerceIn(0f, max),
-        onValueChange = { onChange(it.roundToInt()) },
-        valueRange = 0f..max,
-    )
-}
-
-private fun formatDuration(ms: Long): String {
+internal fun formatDuration(ms: Long): String {
     val minutes = ms / 60_000
     return when {
         minutes < 1 -> "under a minute"

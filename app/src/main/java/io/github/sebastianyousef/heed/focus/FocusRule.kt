@@ -64,7 +64,29 @@ data class FocusRule(
 
     /** Set for apps Heed configured itself, so the UI can say where the rule came from. */
     val fromPreset: Boolean = false,
-)
+
+    /**
+     * Drain the colour out of the screen while this app is in front.
+     *
+     * A softer lever than any of the limits above, and often a more effective one. It
+     * takes nothing away and blocks nothing, so there is no moment to argue with — the
+     * app simply stops being fun to look at.
+     */
+    val grayscale: Boolean = false,
+) {
+    /**
+     * A rule that asks only for a grey screen, and for nothing to be taken away.
+     *
+     * Bedtime locks every app that has a rule, which is right for a rule that sets a
+     * limit and wrong for one that just drains the colour — turning an app grey is not a
+     * request to be shut out of it at eleven at night.
+     */
+    val onlyChangesColour: Boolean
+        get() = mode == FocusMode.OFF &&
+            dailyUsageSeconds <= 0 &&
+            dailyLaunchLimit <= 0 &&
+            dailyScrollSeconds <= 0
+}
 
 /**
  * Apps whose business model is the scroll.
@@ -105,6 +127,16 @@ object KnownScrollers {
             appLabel = label.ifBlank { fallbackLabel },
             mode = FocusMode.NUDGE,
             fromPreset = true,
+            // Apps Heed ships anchors for start in Precise, because for those it can tell
+            // the feed from the rest of the app. Starting them Behavioural is what made
+            // Snapchat throw you out of a conversation: scrolling a chat list and
+            // scrolling Spotlight are the same event, and only the surface tells them
+            // apart. Everything else stays Behavioural, which is all that is available.
+            detection = if (KnownSurfaces.hasBlockAnchors(pkg)) {
+                DetectionMode.PRECISE
+            } else {
+                DetectionMode.BEHAVIOURAL
+            },
         )
     }
 }

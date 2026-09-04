@@ -7,6 +7,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.sebastianyousef.heed.data.HeedRepository
+import io.github.sebastianyousef.heed.widget.HeedWidget
 import java.util.concurrent.TimeUnit
 
 /**
@@ -21,6 +22,7 @@ class UsageWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         val repo = HeedRepository.get(applicationContext)
         UsageTracker(applicationContext, repo).ingest()
+        HeedWidget.refresh(applicationContext)
         return Result.success()
     }
 

@@ -29,6 +29,10 @@ class HeedApplication : Application() {
             // Deterministic: presets should exist before any screen is opened, not as a
             // side effect of visiting one.
             HeedRepository.get(this@HeedApplication).seedPresetsFromHistory()
+            // Limits, bedtime and grayscale run in a foreground service so they survive
+            // the accessibility service being off — which it will be, for anyone who
+            // also uses a banking app.
+            HeedRepository.get(this@HeedApplication).syncAttentionService()
         }
     }
 }

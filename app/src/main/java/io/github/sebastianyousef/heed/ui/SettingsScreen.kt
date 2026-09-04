@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -37,6 +38,7 @@ import io.github.sebastianyousef.heed.export.RedactionLevel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.sebastianyousef.heed.focus.Grayscale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,6 +81,51 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Section("Grey screen") {
+                val context = LocalContext.current
+                var available by remember { mutableStateOf(Grayscale.isAvailable(context)) }
+                if (available) {
+                    Text(
+                        "Ready. Turn it on for bedtime, or for individual apps, in " +
+                            "Attention.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = {
+                        Grayscale.set(context, !Grayscale.isOn(context))
+                    }) { Text("Try it now") }
+                } else {
+                    Text(
+                        "Draining the colour out of the screen means writing Android's " +
+                            "display filter, which is a secure setting — there is no " +
+                            "in-app prompt that can grant it, on any phone, for any app. " +
+                            "It takes one command over USB, once:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        Grayscale.ADB_COMMAND,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Heed writes exactly two keys with that permission, both listed in " +
+                            "focus/Grayscale.kt, and it still has no network access to send " +
+                            "anything anywhere. Apps that offer grayscale without asking for " +
+                            "this are drawing a grey film over the screen, which dims it " +
+                            "without removing a single colour cue.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(onClick = { available = Grayscale.isAvailable(context) }) {
+                        Text("I've run it — check again")
+                    }
+                }
+            }
+
             Section("How strict to be") {
                 Text(
                     "Anything scoring above ${(settings.threshold * 100).roundToInt()} gets through. " +

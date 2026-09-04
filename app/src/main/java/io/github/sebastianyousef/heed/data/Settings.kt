@@ -50,6 +50,15 @@ data class Settings(
      */
     val scrollInterventionMinutes: Int = 10,
 
+    /**
+     * Drain the colour out of the whole screen during bedtime hours.
+     *
+     * Gentler than the block and, for most people, more effective. A blocked app is a
+     * fight you can win by turning the rule off; a grey screen is simply not worth
+     * staying up for.
+     */
+    val grayscaleAtBedtime: Boolean = false,
+
     /** Blocks every app that has a rule, between these hours. */
     val bedtimeEnabled: Boolean = false,
     val bedtimeStart: Int = 23,
@@ -78,6 +87,7 @@ class SettingsStore(private val context: Context) {
         val CONTENT_RETENTION = intPreferencesKey("content_retention_days")
         val RECORD_RETENTION = intPreferencesKey("record_retention_days")
         val SCROLL_MINUTES = intPreferencesKey("scroll_intervention_minutes")
+        val GREY_BEDTIME = booleanPreferencesKey("grayscale_bedtime")
         val BEDTIME_ON = booleanPreferencesKey("bedtime_enabled")
         val BEDTIME_START = intPreferencesKey("bedtime_start")
         val BEDTIME_END = intPreferencesKey("bedtime_end")
@@ -97,6 +107,7 @@ class SettingsStore(private val context: Context) {
             contentRetentionDays = p[Keys.CONTENT_RETENTION] ?: d.contentRetentionDays,
             recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
             scrollInterventionMinutes = p[Keys.SCROLL_MINUTES] ?: d.scrollInterventionMinutes,
+            grayscaleAtBedtime = p[Keys.GREY_BEDTIME] ?: d.grayscaleAtBedtime,
             bedtimeEnabled = p[Keys.BEDTIME_ON] ?: d.bedtimeEnabled,
             bedtimeStart = p[Keys.BEDTIME_START] ?: d.bedtimeStart,
             bedtimeEnd = p[Keys.BEDTIME_END] ?: d.bedtimeEnd,
@@ -126,6 +137,9 @@ class SettingsStore(private val context: Context) {
         it[Keys.BEDTIME_START] = start
         it[Keys.BEDTIME_END] = end
     }
+
+    suspend fun setGrayscaleAtBedtime(v: Boolean) =
+        context.dataStore.edit { it[Keys.GREY_BEDTIME] = v }
 
     suspend fun setStrictUntil(until: Long) =
         context.dataStore.edit { it[Keys.STRICT_UNTIL] = until }

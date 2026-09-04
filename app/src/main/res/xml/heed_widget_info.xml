@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately updated on a slow period rather than a fast one. A widget that repaints
+  every minute costs more battery than the thing it is measuring, and a screen-time
+  figure that is half an hour stale is still an honest answer to "how is today going".
+  Heed also pushes an update whenever the usage worker runs, so in practice it moves
+  sooner than this.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_heed"
+    android:minWidth="250dp"
+    android:minHeight="70dp"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

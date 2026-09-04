@@ -50,7 +50,13 @@ data class LearnedSurface(
  */
 object KnownSurfaces {
 
-    data class Anchor(val packageName: String, val label: String, val viewId: String)
+    data class Anchor(
+        val packageName: String,
+        val label: String,
+        val viewId: String,
+        /** False marks a screen that must never be blocked, whatever else matches. */
+        val block: Boolean = true,
+    )
 
     val anchors = listOf(
         Anchor("com.snapchat.android", "Spotlight", "com.snapchat.android:id/spotlight_card_static_thumbnail"),
@@ -62,6 +68,9 @@ object KnownSurfaces {
     )
 
     fun forPackage(pkg: String) = anchors.filter { it.packageName == pkg }
+
+    /** Apps Heed can tell the feed apart in, and so can safely run in Precise mode. */
+    fun hasBlockAnchors(pkg: String) = anchors.any { it.packageName == pkg && it.block }
 }
 
 object SurfaceMatcher {

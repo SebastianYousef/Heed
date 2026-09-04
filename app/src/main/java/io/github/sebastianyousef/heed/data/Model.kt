@@ -214,3 +214,17 @@ class Converters {
     @TypeConverter fun policyTo(v: AppPolicy) = v.name
     @TypeConverter fun policyFrom(v: String) = AppPolicy.valueOf(v)
 }
+
+/**
+ * One app's share of today, straight out of a GROUP BY.
+ *
+ * Aggregating in SQLite rather than in Kotlin because the sessions table is the one
+ * thing here that grows without bound, and the usage screen would otherwise pull every
+ * row of it into memory to add up four numbers.
+ */
+data class AppUsageRow(
+    val packageName: String,
+    val appLabel: String,
+    val totalMs: Long,
+    val launches: Int,
+)

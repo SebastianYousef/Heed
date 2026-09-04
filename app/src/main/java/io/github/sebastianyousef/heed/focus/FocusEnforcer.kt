@@ -35,7 +35,8 @@ class FocusEnforcer(private val data: Data) {
         val rule = data.rule(pkg) ?: return Verdict.Allow
 
         // Bedtime covers every app that has a rule at all, so it needs no separate list.
-        if (data.isBedtime()) {
+        // A rule that only asks for grayscale is not a request to be locked out, though.
+        if (data.isBedtime() && !rule.onlyChangesColour) {
             return Verdict.Block(
                 headline = "It's past your bedtime",
                 detail = "${rule.appLabel} is closed until morning. Alarms and calls are " +
@@ -88,7 +89,15 @@ class FocusEnforcer(private val data: Data) {
             }
         }
 
-        if (rule.mode == FocusMode.BLOCK && eventsThisBurst >= rule.scrollBudgetEvents) {
+        // Behaviour cannot tell a feed from a conversation. Both are TYPE_VIEW_SCROLLED,
+        // at the same rate, in the same app — so a scroll-count block in Snapchat throws
+        // you out of a chat with a friend, which is what it did. In Precise mode the
+        // decision belongs entirely to surface matching (see ScrollWatcherService), which
+        // knows which screen you are on; this path stays out of it.
+        if (rule.detection == DetectionMode.BEHAVIOURAL &&
+            rule.mode == FocusMode.BLOCK &&
+            eventsThisBurst >= rule.scrollBudgetEvents
+        ) {
             return Verdict.Block(
                 headline = "Not this one",
                 detail = "You asked Heed to stop you scrolling ${rule.appLabel}.",

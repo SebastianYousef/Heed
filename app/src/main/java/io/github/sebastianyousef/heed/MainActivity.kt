@@ -29,6 +29,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.github.sebastianyousef.heed.ui.AppDetailScreen
 import io.github.sebastianyousef.heed.ui.AppsScreen
 import io.github.sebastianyousef.heed.ui.AttentionScreen
 import io.github.sebastianyousef.heed.ui.DetailScreen
@@ -117,7 +118,21 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Section.ATTENTION.route) {
-                            AttentionScreen(vm = vm, onSettings = { nav.navigate("settings") })
+                            AttentionScreen(
+                                vm = vm,
+                                onSettings = { nav.navigate("settings") },
+                                onOpenApp = { pkg -> nav.navigate("app/$pkg") },
+                            )
+                        }
+                        composable(
+                            "app/{pkg}",
+                            arguments = listOf(navArgument("pkg") { type = NavType.StringType }),
+                        ) { backStack ->
+                            AppDetailScreen(
+                                vm = vm,
+                                packageName = backStack.arguments?.getString("pkg").orEmpty(),
+                                onBack = { nav.popBackStack() },
+                            )
                         }
                         composable(
                             "detail/{id}",

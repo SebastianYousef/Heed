@@ -273,6 +273,27 @@ interface HeedDao {
     )
     suspend fun usageSecondsSince(pkg: String, since: Long): Int
 
+    /** Sessions since a moment, for the day-by-day chart and the week totals. */
+    @Query("SELECT * FROM sessions WHERE startedAt >= :since ORDER BY startedAt DESC")
+    fun observeSessionsSince(since: Long): Flow<List<SessionRecord>>
+
+    /** Scrolling across every app since a moment — the widget's second number. */
+    @Query("SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans WHERE startedAt >= :since")
+    suspend fun scrollSecondsSinceAll(since: Long): Int
+
+    @Query("SELECT COUNT(*) FROM notifications WHERE decision = 'SUPPRESSED' AND postedAt >= :since")
+    suspend fun suppressedSince(since: Long): Int
+
+    /** Foreground time per app since a moment, biggest first. Drives the usage screen. */
+    @Query(
+        """
+        SELECT packageName, appLabel, SUM(durationMs) AS totalMs, COUNT(*) AS launches
+        FROM sessions WHERE startedAt >= :since
+        GROUP BY packageName ORDER BY totalMs DESC
+        """
+    )
+    fun observeUsageSince(since: Long): Flow<List<AppUsageRow>>
+
     // --- learned surfaces ---
 
     @Insert

@@ -24,7 +24,7 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         FocusRule::class,
         LearnedSurface::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -151,6 +151,19 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the per-app grayscale switch.
+         *
+         * Grayscale needed a home somewhere, and the rule row is the right one: it is
+         * per-app, it is a thing Heed may do about an app, and putting it here means the
+         * same editor that sets a limit can set it.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE focus_rules ADD COLUMN grayscale INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -158,7 +171,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
         }
     }
 }

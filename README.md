@@ -242,11 +242,67 @@ the session that followed a tap turns out to be doom scrolling, the notification
 recorded as `CLICKED_THEN_SCROLLED` and trains as a negative instead. The filtering gets
 better because the attention tracking exists.
 
+## Banking apps, and why enforcement is split in two
+
+Nordea, BankID, Swish and most of their peers refuse to start while *any* accessibility
+service is enabled. That is a reasonable defence — accessibility is the standard vector
+for overlay-and-tap account takeover — and it is not something to detect around or evade.
+
+The first version put every limit behind the accessibility service, which meant it was
+really asking people to choose between their bank and their screen-time rules. Nobody
+makes that choice twice; they disable the app, which is exactly what happened here.
+
+So enforcement is now two engines:
+
+| | Needs | Does |
+|---|---|---|
+| `AttentionService` | usage statistics | screen time, time limits, launch limits, bedtime, grayscale |
+| `ScrollWatcherService` | accessibility | scroll measurement, per-surface blocking |
+
+Everything in the first row works with accessibility switched off, so the default install
+is compatible with every banking app on the phone. Turning screen access on adds scroll
+measurement and the ability to tell one feed from another, and the app says plainly that
+it will break banking apps before you do it — with a one-tap "turn off for banking" that
+calls `disableSelf()`, because hunting through system settings at a checkout is not a
+thing anyone should have to do.
+
+## Grayscale
+
+Colour is the cheapest thing an app buys attention with, and a feed built on thumbnails
+stops working in monochrome. Unlike a block screen there is nothing to argue with: the
+phone still works, it is simply boring.
+
+Android has exactly one way to do this without root — the display daltonizer in mode 0
+(`MONOCHROMACY`). It is a secure setting, so it needs `WRITE_SECURE_SETTINGS`, which no
+prompt can grant and which has to be given once over adb:
+
+```
+adb shell pm grant io.github.sebastianyousef.heed android.permission.WRITE_SECURE_SETTINGS
+```
+
+That is a real cost and it is worth saying why it is paid. An overlay cannot desaturate
+what is underneath it; it can only tint. Every grayscale app that does not ask for this
+permission is drawing a grey film over the screen, which dims it without removing a single
+colour cue. Heed writes exactly two keys with the permission, both listed in
+`focus/Grayscale.kt`, and still holds no network permission to send anything anywhere.
+
+Heed also only ever undoes grayscale it turned on itself, so someone who keeps their phone
+permanently grey does not find it back in colour because they opened LinkedIn.
+
 ### Telling one screen from another
 
-Behavioural detection cannot distinguish Snapchat's Discovery from Snapchat's chat list,
-because both are simply scrolling. Blocking one and not the other needs to know which
-screen you are on, so `Precise` mode is opt-in per app.
+Behavioural detection cannot distinguish Snapchat's Spotlight from Snapchat's chat list,
+because both are simply scrolling. This is not a subtlety — it was a bug with teeth. A
+`Block` rule on Snapchat in Automatic mode fired on the first few scrolls of *whatever was
+on screen*, which in practice meant being thrown out of a conversation with a friend
+mid-sentence.
+
+The rule now: **a scroll count may only ever block in Automatic mode.** In Precise mode
+the decision belongs entirely to surface matching, which knows which screen you are on, so
+chats and friends' stories are untouchable by construction rather than by tuning. Apps
+Heed ships anchors for start in Precise, and an existing Block rule on such an app is
+migrated to Precise on upgrade — a rule that cannot do what its own description promises is
+not a preference worth preserving.
 
 Rather than hardcoding view ids per app — which breaks on every redesign and only covers
 apps someone remembered — Heed learns them. You open the screen, press **Teach a screen**,
@@ -327,6 +383,14 @@ The intervention is friction, not a wall — a five-second delay and one honest 
 about how you got there, drawn with `TYPE_ACCESSIBILITY_OVERLAY` so it needs no
 `SYSTEM_ALERT_WINDOW` permission. Apps that hard-block get uninstalled by Friday.
 
+## The widget
+
+Today's screen time, the minutes of it that were scrolling, and how many notifications
+Heed absorbed. On the home screen rather than inside the app, because a screen-time figure
+you have to open an app to see is one you look at after the evening is already gone; on the
+home screen it is in the way of the thing you were about to open, which is the only moment
+it can change anything.
+
 ## Layout
 
 ```
@@ -392,3 +456,12 @@ Known gaps, in rough priority order:
 4. No inline reply from the inbox; `RemoteInput` actions are dropped rather than preserved.
 5. Notification text is stored unencrypted. 30 days of `bigText` is a sensitive corpus.
 6. `QUERY_ALL_PACKAGES` is only used for app labels and would need removing before Play.
+7. **Snapchat's anchors are unverified on a live account.** The view ids in
+   `KnownSurfaces` are cross-checked against public inspection of the app, but Precise
+   mode has never been watched blocking Spotlight in practice. "Teach a screen" is the
+   fallback and works regardless; the anchors are a convenience that may need a redress
+   after a Snapchat redesign.
+8. The grayscale filter is verified as *writable* (`WRITE_SECURE_SETTINGS` granted, keys
+   confirmed present on the device) but the visual effect cannot be checked over adb —
+   `screencap` reads upstream of the display colour transform, so a grey screen and a
+   colour one produce byte-identical screenshots.

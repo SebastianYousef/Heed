@@ -25,6 +25,9 @@ class Notifier(private val context: Context) {
     companion object {
         const val CHANNEL_ALERT = "heed_alert"
         const val CHANNEL_DIGEST = "heed_digest"
+
+        /** The unavoidable ongoing notification for the foreground service. Silent, minimal. */
+        const val CHANNEL_STATUS = "heed_status"
         private const val DIGEST_ID = 1_000_001
     }
 
@@ -50,6 +53,18 @@ class Notifier(private val context: Context) {
             ).apply {
                 description = "Periodic digests of everything that was filtered out."
                 setSound(null, null)
+            }
+        )
+        system.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_STATUS,
+                "Heed is running",
+                NotificationManager.IMPORTANCE_MIN,
+            ).apply {
+                description = "The permanent, silent notice Android requires while Heed " +
+                    "is watching for your app limits."
+                setSound(null, null)
+                setShowBadge(false)
             }
         )
     }

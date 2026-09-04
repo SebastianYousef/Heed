@@ -43,6 +43,7 @@ class ScrollWatcherService : AccessibilityService() {
 
     override fun onServiceConnected() {
         connected = true
+        instance = this
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -221,6 +222,7 @@ class ScrollWatcherService : AccessibilityService() {
 
     override fun onDestroy() {
         connected = false
+        if (instance === this) instance = null
         flush(System.currentTimeMillis())
         scope.cancel()
         super.onDestroy()
@@ -261,5 +263,21 @@ class ScrollWatcherService : AccessibilityService() {
 
         @Volatile var connected = false
             private set
+
+        @Volatile private var instance: ScrollWatcherService? = null
+
+        /**
+         * Switch the service off from inside the app.
+         *
+         * Banking apps refuse to run while any accessibility service is enabled — a fair
+         * defence against overlay-and-tap fraud, and not one to be worked around. This
+         * makes the honest answer a single tap instead of a hunt through system settings.
+         * Android offers no matching way to switch it back on, by design, so re-enabling
+         * still means a trip to Settings; the UI is explicit about that rather than
+         * pretending otherwise.
+         */
+        fun pause() {
+            instance?.let { runCatching { it.disableSelf() } }
+        }
     }
 }

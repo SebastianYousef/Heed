@@ -31,6 +31,31 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+      Lets Heed enforce app limits, bedtime and grayscale without an accessibility
+      service. That matters because banking apps refuse to run while one is enabled, so
+      putting every limit behind accessibility forced a choice between your bank and your
+      rules. See focus/AttentionService.kt.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!--
+      Optional, and only used to draw the block screen when the accessibility service is
+      off. With accessibility on, TYPE_ACCESSIBILITY_OVERLAY does the same job and this is
+      never requested.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
+      Grayscale. The display daltonizer is a secure setting, so there is no prompt that can
+      grant this — it takes one adb command, shown in the app. Declared so that command has
+      something to grant. Heed writes exactly two keys with it, both listed in
+      focus/Grayscale.kt, and can read nothing it could not read already.
+    -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".HeedApplication"
         android:allowBackup="false"
@@ -96,6 +121,33 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!--
+          Enforcement without screen access. Polls usage statistics for the foreground
+          app, which is enough for limits, launch counts, bedtime and grayscale.
+        -->
+        <service
+            android:name=".focus.AttentionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Enforces the user's own app time limits and bedtime, which
+                    requires knowing which app is in the foreground right now." />
+        </service>
+
+        <!-- Today's numbers on the home screen, so the app does not have to be opened
+             to be useful. -->
+        <receiver
+            android:name=".widget.HeedWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/heed_widget_info" />
+        </receiver>
 
         <!-- Hands a single export file to the share target the user picks, and nothing
              else. Not exported; access is only ever a per-Intent grant. -->

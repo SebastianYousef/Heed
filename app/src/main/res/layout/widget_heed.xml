@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One number people actually act on, and the two that explain it.
+
+  Screen time is the headline because it is the only figure anyone checks unprompted.
+  Underneath it, the two that a plain screen-time widget cannot show: how much of that
+  was scrolling rather than doing, and how many interruptions Heed absorbed on your
+  behalf. Together they answer "where did today go" instead of just scoring it.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/widget_headline"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="30sp"
+        android:fontFamily="sans-serif-medium"
+        android:text="—" />
+
+    <TextView
+        android:id="@+id/widget_caption"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#9AA3B4"
+        android:textSize="12sp"
+        android:text="screen time today" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_scrolling"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:textColor="#C7D0E0"
+            android:textSize="13sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/widget_filtered"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:textColor="#C7D0E0"
+            android:textSize="13sp"
+            android:text="" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_top"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="#6F7A8C"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="" />
+</LinearLayout>

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -72,8 +73,13 @@ fun AppsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                             Modifier.padding(12.dp).fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            AppIcon(live.packageName, live.appLabel, size = 28)
+                            Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(live.appLabel, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    rememberAppLabel(live.packageName, live.appLabel),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
                                 Text(
                                     "Rewrites itself constantly (${live.burstSize} updates in a " +
                                         "couple of minutes), so Heed leaves it alone entirely — " +
@@ -98,14 +104,21 @@ fun AppsScreen(vm: InboxViewModel, onBack: () -> Unit) {
             }
 
             items(policies, key = { it.packageName }) { policy ->
+                val label = rememberAppLabel(policy.packageName, policy.appLabel)
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(policy.appLabel, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "${policy.alertedCount} shown · ${policy.suppressedCount} filed",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AppIcon(policy.packageName, label)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(label, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "${policy.alertedCount} shown · ${policy.suppressedCount} filed",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
 
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
