@@ -134,7 +134,16 @@ fun InboxScreen(
                 }
             }
 
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            // Top-aligned explicitly. HorizontalPager centres its pages vertically by
+            // default, and a LazyColumn shorter than the viewport wraps its content — so
+            // a tab with four notifications in it drew them as a block floating in the
+            // middle of the screen. The list also fills the height below, so neither the
+            // pager nor the column has any slack left to centre.
+            HorizontalPager(
+                state = pagerState,
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
                 // Only the settled tab has rows: the view model holds one query at a
                 // time, and re-querying three of them so a neighbouring page can be
                 // pre-rendered would cost three times the work to show a list nobody is
@@ -154,6 +163,7 @@ fun InboxScreen(
                     }
                 } else {
                     LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {

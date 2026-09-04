@@ -355,6 +355,7 @@ interface HeedDao {
                SUM(CASE WHEN s.triggerNotificationId IS NOT NULL THEN 1 ELSE 0 END) AS openedFromAlert
         FROM sessions s
         WHERE s.startedAt >= :since
+          AND s.packageName NOT IN (SELECT packageName FROM focus_rules WHERE excludedFromStats = 1)
         GROUP BY s.packageName
         ORDER BY todayMs DESC, totalMs DESC
         """
@@ -409,6 +410,7 @@ interface HeedDao {
         SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex, COUNT(*) AS totalMs
         FROM sessions
         WHERE startedAt >= :originOfDay
+          AND packageName NOT IN (SELECT packageName FROM focus_rules WHERE excludedFromStats = 1)
         GROUP BY dayIndex
         """
     )
@@ -421,10 +423,32 @@ interface HeedDao {
                SUM(durationMs) AS totalMs
         FROM sessions
         WHERE startedAt >= :originOfDay
+          AND packageName NOT IN (SELECT packageName FROM focus_rules WHERE excludedFromStats = 1)
         GROUP BY dayIndex
         """
     )
     fun observeDayTotals(originOfDay: Long): Flow<List<DayTotalRow>>
+
+    /**
+     * Each day's screen time, split by the category you gave each app.
+     *
+     * A LEFT JOIN because most apps have no rule at all and those are neutral by
+     * definition — an INNER JOIN here would quietly show only the apps you had already
+     * had opinions about, which is the subset least in need of a chart.
+     */
+    @Query(
+        """
+        SELECT (s.startedAt - :originOfDay) / 86400000 AS dayIndex,
+               COALESCE(r.category, 'NEUTRAL') AS category,
+               SUM(s.durationMs) AS totalMs
+        FROM sessions s
+        LEFT JOIN focus_rules r ON r.packageName = s.packageName
+        WHERE s.startedAt >= :originOfDay
+          AND COALESCE(r.excludedFromStats, 0) = 0
+        GROUP BY dayIndex, category
+        """
+    )
+    fun observeDayCategories(originOfDay: Long): Flow<List<DayCategoryRow>>
 
     /** Scrolling across every app since a moment — the widget's second number. */
     @Query("SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans WHERE startedAt >= :since")
@@ -439,6 +463,7 @@ interface HeedDao {
         SELECT packageName, MAX(appLabel) AS appLabel, SUM(durationMs) AS totalMs,
                COUNT(*) AS launches
         FROM sessions WHERE startedAt >= :from AND startedAt < :to
+          AND packageName NOT IN (SELECT packageName FROM focus_rules WHERE excludedFromStats = 1)
         GROUP BY packageName ORDER BY totalMs DESC
         """
     )
@@ -464,6 +489,35 @@ interface HeedDao {
     /** How many times this app came to the foreground today. */
     @Query("SELECT COUNT(*) FROM sessions WHERE packageName = :pkg AND startedAt >= :since")
     suspend fun launchesSince(pkg: String, since: Long): Int
+
+    // --- focus sessions ---
+
+    @Insert
+    suspend fun insertFocusSession(session: io.github.sebastianyousef.heed.focus.FocusSessionRecord): Long
+
+    @Query(
+        "UPDATE focus_sessions SET endedAt = :at, endedEarly = :early, blocks = :blocks WHERE id = :id"
+    )
+    suspend fun finishFocusSession(id: Long, at: Long, early: Boolean, blocks: Int)
+
+    @Query("UPDATE focus_sessions SET blocks = blocks + 1 WHERE id = :id")
+    suspend fun bumpFocusBlocks(id: Long)
+
+    @Query("SELECT * FROM focus_sessions ORDER BY startedAt DESC LIMIT :limit")
+    fun observeFocusSessions(limit: Int = 60): Flow<List<io.github.sebastianyousef.heed.focus.FocusSessionRecord>>
+
+    /**
+     * Close any session left open by the process dying mid-run.
+     *
+     * The live session lives in settings and the row lives here, so a crash between the
+     * two leaves a row with no end. Marked as ended early rather than completed, because
+     * that is what actually happened as far as the user is concerned.
+     */
+    @Query("UPDATE focus_sessions SET endedAt = :at, endedEarly = 1 WHERE endedAt IS NULL AND id != :keep")
+    suspend fun closeOrphanedFocusSessions(at: Long, keep: Long)
+
+    @Query("DELETE FROM focus_sessions WHERE startedAt < :before")
+    suspend fun deleteFocusSessionsOlderThan(before: Long): Int
 
     // --- model ---
 

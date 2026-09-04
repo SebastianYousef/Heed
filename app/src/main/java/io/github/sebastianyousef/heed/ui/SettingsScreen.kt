@@ -40,6 +40,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.sebastianyousef.heed.focus.Grayscale
+import androidx.compose.material3.CardDefaults
+import android.provider.Settings
+import io.github.sebastianyousef.heed.focus.ScrollWatcherService
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,6 +86,24 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            BedtimeCard(
+                settings.bedtimeEnabled,
+                settings.bedtimeStart,
+                settings.bedtimeEnd,
+                settings.grayscaleAtBedtime,
+                Grayscale.isAvailable(context),
+                vm::setBedtime,
+                vm::setGrayscaleAtBedtime,
+            )
+            Spacer(Modifier.height(12.dp))
+            ScreenAccessCard(
+                ScrollWatcherService.isEnabled(context),
+                settings.pauseForBanking,
+                vm,
+                context,
+            )
+            Spacer(Modifier.height(12.dp))
+
             Section("Grey screen") {
                 val context = LocalContext.current
                 var available by remember { mutableStateOf(Grayscale.isAvailable(context)) }
@@ -371,6 +392,151 @@ private fun Section(title: String, content: @Composable () -> Unit) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(6.dp))
             content()
+        }
+    }
+}
+
+@Composable
+private fun BedtimeCard(
+    enabled: Boolean,
+    start: Int,
+    end: Int,
+    grey: Boolean,
+    greyAvailable: Boolean,
+    onChange: (Boolean, Int, Int) -> Unit,
+    onGrey: (Boolean) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Bedtime", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (enabled) {
+                            "Apps with a rule are closed between $start:00 and $end:00. " +
+                                "Calls, alarms and authenticators are untouched."
+                        } else {
+                            "Off."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = { onChange(it, start, end) })
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Grey screen at night", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (greyAvailable) {
+                            "Drains the colour out of the whole screen during those hours. " +
+                                "Nothing is blocked — the phone just stops being interesting."
+                        } else {
+                            "Needs a one-time setup over USB. Open Settings to see the command."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = grey && greyAvailable,
+                    enabled = greyAvailable,
+                    onCheckedChange = onGrey,
+                )
+            }
+
+            if (enabled) {
+                Spacer(Modifier.height(4.dp))
+                Text("Starts at $start:00", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = start.toFloat(),
+                    onValueChange = { onChange(true, it.roundToInt(), end) },
+                    valueRange = 18f..23f, steps = 4,
+                )
+                Text("Ends at $end:00", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = end.toFloat(),
+                    onValueChange = { onChange(true, start, it.roundToInt()) },
+                    valueRange = 4f..11f, steps = 6,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The accessibility service, and the banking-app problem it causes.
+ *
+ * This card is blunt about the trade-off because the alternative is worse: someone
+ * discovers at a checkout that their bank will not open, has no idea Heed is why, and
+ * uninstalls it. Saying so up front, with the off switch right there, costs a few lines
+ * and keeps the app installed.
+ */
+@Composable
+private fun ScreenAccessCard(
+    enabled: Boolean,
+    pauseForBanking: Boolean,
+    vm: InboxViewModel,
+    context: android.content.Context,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Screen access", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (enabled) {
+                    "On. Heed can measure scrolling and tell one feed from another — the " +
+                        "only way to block Snapchat's Spotlight without also blocking your " +
+                        "chats."
+                } else {
+                    "Off. Time limits, opens, bedtime and grey screen all still work — " +
+                        "those run on usage statistics and need nothing from your screen.\n\n" +
+                        "Turning it on adds scrolling measurement and blocking a single " +
+                        "feed without touching the rest of the app."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Turn off automatically for banking",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Off by default, and deliberately. Android will not let Heed " +
+                            "switch its own screen access back on, so doing this " +
+                            "automatically is a one-way door — one wrong guess and " +
+                            "blocking stops working until you notice. Left off, Heed " +
+                            "still spots a banking app and offers you the switch.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = pauseForBanking,
+                    onCheckedChange = { vm.setPauseForBanking(it) },
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            if (enabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { vm.pauseScreenAccess() }) {
+                        Text("Turn off for banking")
+                    }
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }) { Text("System settings") }
+                }
+            } else {
+                OutlinedButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }) { Text("Turn on screen access") }
+            }
         }
     }
 }

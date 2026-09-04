@@ -247,6 +247,100 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         repo.syncAttentionService()
     }
 
+    // ----- focus sessions -----
+
+    /**
+     * The running session, recomputed whenever settings change.
+     *
+     * Derived from settings rather than held as its own state because the enforcement
+     * path already reads it from there — two sources for one fact is how the UI ends up
+     * showing a session that is not running.
+     */
+    val focus: StateFlow<io.github.sebastianyousef.heed.focus.FocusSession.State?> =
+        repo.settings.map { s ->
+            if (s.focusStartedAt <= 0L) null
+            else io.github.sebastianyousef.heed.focus.FocusSession.State(
+                label = s.focusLabel.ifBlank { "Focus" },
+                startedAt = s.focusStartedAt,
+                plannedMs = s.focusPlannedMs,
+                allowed = s.focusAllowed.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
+                endRequestedAt = s.focusEndRequestedAt,
+                sessionId = s.focusSessionId,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val focusHistory: StateFlow<List<io.github.sebastianyousef.heed.focus.FocusSessionRecord>> =
+        repo.dao.observeFocusSessions()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val focusAllowed: StateFlow<Set<String>> = repo.settings
+        .map { it.focusAllowed.split(',').map { p -> p.trim() }.filter { p -> p.isNotEmpty() }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun startFocus(label: String, plannedMs: Long) = viewModelScope.launch {
+        repo.startFocus(label, plannedMs)
+    }
+
+    fun requestFocusEnd() = viewModelScope.launch { repo.requestFocusEnd() }
+    fun cancelFocusEnd() = viewModelScope.launch { repo.cancelFocusEnd() }
+    fun endFocus(early: Boolean) = viewModelScope.launch { repo.endFocus(early) }
+
+    fun setFocusAllowed(packages: Set<String>) = viewModelScope.launch {
+        repo.setFocusAllowed(packages)
+    }
+
+    /**
+     * Retire a session whose clock has run out.
+     *
+     * Called from the screen rather than by a timer, because a countdown that has expired
+     * already stops blocking — [io.github.sebastianyousef.heed.focus.FocusSession.blocks]
+     * checks the clock — so there is nothing to race. This only tidies the record away.
+     */
+    fun finishExpiredFocus() = viewModelScope.launch {
+        val state = focus.value ?: return@launch
+        if (state.expired(System.currentTimeMillis())) repo.endFocus(early = false)
+    }
+
+    // ----- how each app's time is counted, and coloured -----
+
+    fun setExcludedFromStats(pkg: String, label: String, excluded: Boolean) = viewModelScope.launch {
+        val existing = repo.dao.focusRuleFor(pkg)
+            ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, label)
+        repo.dao.upsertFocusRule(existing.copy(excludedFromStats = excluded))
+    }
+
+    fun setCategory(
+        pkg: String,
+        label: String,
+        category: io.github.sebastianyousef.heed.focus.AppCategory,
+    ) = viewModelScope.launch {
+        val existing = repo.dao.focusRuleFor(pkg)
+            ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, label)
+        repo.dao.upsertFocusRule(existing.copy(category = category))
+    }
+
+    /**
+     * Each day's time split by category, keyed by day index.
+     *
+     * Shaped for the chart rather than for the query: the chart asks "what does Tuesday
+     * look like", and a flat list of rows would make it search for that seven times per
+     * frame.
+     */
+    val dayCategories: StateFlow<Map<Int, Map<io.github.sebastianyousef.heed.focus.AppCategory, Long>>> =
+        repo.dao.observeDayCategories(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .map { rows ->
+                rows.groupBy { it.dayIndex }.mapValues { (_, group) ->
+                    group.associate { row ->
+                        val category = runCatching {
+                            io.github.sebastianyousef.heed.focus.AppCategory.valueOf(row.category)
+                        }.getOrDefault(io.github.sebastianyousef.heed.focus.AppCategory.NEUTRAL)
+                        category to row.totalMs
+                    }
+                }
+            }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
 

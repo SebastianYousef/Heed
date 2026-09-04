@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -86,6 +87,24 @@ data class Settings(
      * thinking clearly. Turning it on is instant; turning it off waits.
      */
     val strictUntil: Long = 0L,
+
+    // --- focus sessions ---
+    //
+    // Held in settings rather than read from the sessions table because the enforcement
+    // path asks "is a session running" on every foreground poll, and [HeedRepository]
+    // already caches settings for exactly that reason. The table is the history; this is
+    // the live state, and it survives a reboot because DataStore does.
+    /** When the running session began, or 0 for none. */
+    val focusStartedAt: Long = 0L,
+    /** How long it was meant to last. 0 for an open-ended stopwatch. */
+    val focusPlannedMs: Long = 0L,
+    val focusLabel: String = "",
+    /** Row in `focus_sessions` this is the live half of. */
+    val focusSessionId: Long = 0L,
+    /** When the user asked to stop, or 0. Starting is instant; stopping waits. */
+    val focusEndRequestedAt: Long = 0L,
+    /** Packages that stay open during a session, comma separated. */
+    val focusAllowed: String = "",
 )
 
 class SettingsStore(private val context: Context) {
@@ -107,6 +126,12 @@ class SettingsStore(private val context: Context) {
         val BEDTIME_START = intPreferencesKey("bedtime_start")
         val BEDTIME_END = intPreferencesKey("bedtime_end")
         val STRICT_UNTIL = longPreferencesKey("strict_until")
+        val FOCUS_STARTED = longPreferencesKey("focus_started_at")
+        val FOCUS_PLANNED = longPreferencesKey("focus_planned_ms")
+        val FOCUS_LABEL = stringPreferencesKey("focus_label")
+        val FOCUS_SESSION_ID = longPreferencesKey("focus_session_id")
+        val FOCUS_END_REQUESTED = longPreferencesKey("focus_end_requested_at")
+        val FOCUS_ALLOWED = stringPreferencesKey("focus_allowed")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -128,6 +153,12 @@ class SettingsStore(private val context: Context) {
             bedtimeStart = p[Keys.BEDTIME_START] ?: d.bedtimeStart,
             bedtimeEnd = p[Keys.BEDTIME_END] ?: d.bedtimeEnd,
             strictUntil = p[Keys.STRICT_UNTIL] ?: d.strictUntil,
+            focusStartedAt = p[Keys.FOCUS_STARTED] ?: d.focusStartedAt,
+            focusPlannedMs = p[Keys.FOCUS_PLANNED] ?: d.focusPlannedMs,
+            focusLabel = p[Keys.FOCUS_LABEL] ?: d.focusLabel,
+            focusSessionId = p[Keys.FOCUS_SESSION_ID] ?: d.focusSessionId,
+            focusEndRequestedAt = p[Keys.FOCUS_END_REQUESTED] ?: d.focusEndRequestedAt,
+            focusAllowed = p[Keys.FOCUS_ALLOWED] ?: d.focusAllowed,
         )
     }
 
@@ -162,4 +193,27 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setStrictUntil(until: Long) =
         context.dataStore.edit { it[Keys.STRICT_UNTIL] = until }
+
+    suspend fun startFocus(label: String, plannedMs: Long, sessionId: Long, at: Long) =
+        context.dataStore.edit {
+            it[Keys.FOCUS_STARTED] = at
+            it[Keys.FOCUS_PLANNED] = plannedMs
+            it[Keys.FOCUS_LABEL] = label
+            it[Keys.FOCUS_SESSION_ID] = sessionId
+            it[Keys.FOCUS_END_REQUESTED] = 0L
+        }
+
+    suspend fun requestFocusEnd(at: Long) =
+        context.dataStore.edit { it[Keys.FOCUS_END_REQUESTED] = at }
+
+    suspend fun clearFocus() = context.dataStore.edit {
+        it[Keys.FOCUS_STARTED] = 0L
+        it[Keys.FOCUS_PLANNED] = 0L
+        it[Keys.FOCUS_LABEL] = ""
+        it[Keys.FOCUS_SESSION_ID] = 0L
+        it[Keys.FOCUS_END_REQUESTED] = 0L
+    }
+
+    suspend fun setFocusAllowed(packages: Set<String>) =
+        context.dataStore.edit { it[Keys.FOCUS_ALLOWED] = packages.sorted().joinToString(",") }
 }

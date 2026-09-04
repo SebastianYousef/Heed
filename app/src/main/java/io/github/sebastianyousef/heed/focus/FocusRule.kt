@@ -13,6 +13,19 @@ import androidx.room.PrimaryKey
  */
 enum class DetectionMode { BEHAVIOURAL, PRECISE }
 
+/**
+ * What kind of time an app represents to you.
+ *
+ * Deliberately your judgement rather than Heed's. Every app that tries to classify this
+ * for you gets it wrong for someone — YouTube is a lecture hall for one person and a slot
+ * machine for the next, and a category shipped in a list would be wrong about the app
+ * that matters most. Heed only colours what you have told it.
+ *
+ * [NEUTRAL] is the default and stays uncoloured. A screen that shades everything says
+ * nothing; the signal is in the two you actually named.
+ */
+enum class AppCategory { NEUTRAL, PRODUCTIVE, DISTRACTING }
+
 enum class FocusMode {
     /** Measure only. */
     OFF,
@@ -106,6 +119,23 @@ data class FocusRule(
      * since a new exception can only ever protect something that was previously blocked.
      */
     val disabledExceptions: String = "",
+
+    /**
+     * Leave this app out of the statistics entirely.
+     *
+     * For the apps that are technically foreground time and are not *your* time: a
+     * launcher you pass through on the way to something else, a system dialog, the
+     * intent resolver. Counting those does not make the total more accurate, it makes
+     * it less — twenty seconds of launcher between two real sessions is not screen time
+     * in any sense a person means it.
+     *
+     * Excluded in SQL rather than filtered afterwards, so the totals, the chart, the
+     * per-day breakdown and the app list can never disagree about it.
+     */
+    val excludedFromStats: Boolean = false,
+
+    /** Your judgement about this app, for colouring the statistics. */
+    val category: AppCategory = AppCategory.NEUTRAL,
 ) {
     fun isExceptionEnabled(key: String): Boolean =
         key !in disabledExceptions.split(',').map { it.trim() }.filter { it.isNotEmpty() }

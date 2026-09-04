@@ -158,11 +158,25 @@ class AttentionService : Service() {
         if (ScrollWatcherService.isEnabled(this)) return  // that service already handles it
 
         // Only an app with a limit can be blocked on opening, and that is a hash lookup.
-        if (rule == null || (rule.dailyUsageSeconds <= 0 && rule.dailyLaunchLimit <= 0 && !bedtimeNow)) return
+        // A focus session is the exception: it turns apps away *because* they have no
+        // rule, so it cannot be gated on there being one.
+        val focus = repo.focusState()
+        if (focus == null &&
+            (rule == null ||
+                (rule.dailyUsageSeconds <= 0 && rule.dailyLaunchLimit <= 0 && !bedtimeNow))
+        ) {
+            return
+        }
 
-        val verdict = FocusEnforcer.from(repo.dao) { bedtimeNow }.onAppOpened(pkg)
+        val verdict = FocusEnforcer.from(
+            dao = repo.dao,
+            bedtime = { bedtimeNow },
+            focus = { focus },
+            exempt = { repo.focusExempt() },
+        ).onAppOpened(pkg)
         if (verdict is FocusEnforcer.Verdict.Block) {
             if (!Surfacer.canDrawOverlays(this)) return
+            if (focus != null) repo.countFocusBlock()
             lastBlockAt = now
             FocusOverlay.block(Surfacer.FromContext(this), verdict.headline, verdict.detail)
         }

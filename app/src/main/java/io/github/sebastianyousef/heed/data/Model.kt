@@ -242,6 +242,8 @@ class Converters {
     @TypeConverter fun pathFrom(v: String) = CapturePath.valueOf(v)
     @TypeConverter fun feedbackTo(v: Feedback) = v.name
     @TypeConverter fun feedbackFrom(v: String) = Feedback.valueOf(v)
+    @TypeConverter fun categoryTo(v: io.github.sebastianyousef.heed.focus.AppCategory) = v.name
+    @TypeConverter fun categoryFrom(v: String) = io.github.sebastianyousef.heed.focus.AppCategory.valueOf(v)
     @TypeConverter fun policyTo(v: AppPolicy) = v.name
     @TypeConverter fun policyFrom(v: String) = AppPolicy.valueOf(v)
 }
@@ -281,6 +283,14 @@ data class AlertCountRow(
 
 /** Days since the origin, and the screen time in that bucket. */
 data class DayTotalRow(val dayIndex: Int, val totalMs: Long)
+
+/**
+ * One day's screen time split by what kind of time you said it was.
+ *
+ * Produced by SQLite rather than by grouping the app list in Kotlin, because the chart
+ * needs seven days of it and the app list only ever holds one period.
+ */
+data class DayCategoryRow(val dayIndex: Int, val category: String, val totalMs: Long)
 
 
 /**

@@ -24,6 +24,18 @@ class FocusEnforcer(private val data: Data) {
         suspend fun usageSecondsToday(pkg: String): Int
         suspend fun launchesToday(pkg: String): Int
         suspend fun isBedtime(): Boolean
+
+        /** The running focus session, or null. */
+        suspend fun focus(): FocusSession.State? = null
+
+        /**
+         * Apps a focus session must never turn away: the launcher, and Heed.
+         *
+         * Blocking sends you to the home screen, so blocking the home screen has nowhere
+         * to send you; and blocking Heed hides the button that ends the session. Passed
+         * in because which app is the launcher is a fact about the device, not a rule.
+         */
+        suspend fun focusExempt(): Set<String> = emptySet()
     }
 
     sealed interface Verdict {
@@ -34,6 +46,27 @@ class FocusEnforcer(private val data: Data) {
     /** Checked when an app comes to the foreground, before any scrolling happens. */
     suspend fun onAppOpened(pkg: String): Verdict {
         if (CriticalApps.isProtected(pkg)) return Verdict.Allow
+
+        // Checked before the rule lookup, and this is the ordering that matters. Every
+        // other limit here is per-app and answers "have you had enough of this one"; a
+        // focus session is the opposite question — everything is closed unless you named
+        // it — so it has to apply to apps that have no rule at all, which is nearly all
+        // of them.
+        val focus = data.focus()
+        if (FocusSession.blocks(focus, pkg, data.focusExempt(), System.currentTimeMillis())) {
+            val remaining = focus!!.remainingMs(System.currentTimeMillis())
+            return Verdict.Block(
+                headline = "You're in a ${focus.label.lowercase()} session",
+                detail = if (remaining != null) {
+                    "${Time.duration(remaining)} left. Ending it early takes " +
+                        "${FocusSession.END_DELAY_SECONDS} seconds, from inside Heed."
+                } else {
+                    "Running since ${Time.duration(focus.elapsedMs(System.currentTimeMillis()))} " +
+                        "ago. End it from inside Heed when you are done."
+                },
+            )
+        }
+
         val rule = data.rule(pkg) ?: return Verdict.Allow
 
         // Bedtime covers every app that has a rule at all, so it needs no separate list.
@@ -74,6 +107,8 @@ class FocusEnforcer(private val data: Data) {
         fun from(
             dao: HeedDao,
             bedtime: suspend () -> Boolean = { false },
+            focus: suspend () -> FocusSession.State? = { null },
+            exempt: suspend () -> Set<String> = { emptySet() },
         ) = FocusEnforcer(object : Data {
             override suspend fun rule(pkg: String) = dao.focusRuleFor(pkg)
             override suspend fun usageSecondsToday(pkg: String) =
@@ -81,6 +116,8 @@ class FocusEnforcer(private val data: Data) {
             override suspend fun launchesToday(pkg: String) =
                 dao.launchesSince(pkg, Time.startOfToday())
             override suspend fun isBedtime() = bedtime()
+            override suspend fun focus() = focus()
+            override suspend fun focusExempt() = exempt()
         })
 
     }

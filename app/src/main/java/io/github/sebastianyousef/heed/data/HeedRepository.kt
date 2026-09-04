@@ -240,9 +240,10 @@ class HeedRepository(private val context: Context) {
      * Only limits and grayscale care about the moment of entry, so with none of those set
      * the foreground app can be checked far more lazily.
      */
-    fun anyRuleNeedsForeground(): Boolean = ruleCache.values.any {
-        it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
-    }
+    fun anyRuleNeedsForeground(): Boolean =
+        cachedSettings.focusStartedAt > 0L || ruleCache.values.any {
+            it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
+        }
 
     suspend fun ensureModelLoaded() {
         if (modelLoaded) return
@@ -683,6 +684,9 @@ class HeedRepository(private val context: Context) {
         val rules = dao.allFocusRules()
         val needed = settings.grayscaleAtBedtime ||
             settings.bedtimeEnabled ||
+            // A session blocks apps that have no rule at all, so it cannot rely on a rule
+            // being what keeps the service alive.
+            settings.focusStartedAt > 0L ||
             rules.any {
                 it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
             } ||
@@ -691,6 +695,106 @@ class HeedRepository(private val context: Context) {
             (settings.pauseForBanking &&
                 io.github.sebastianyousef.heed.focus.ScrollWatcherService.isEnabled(context))
         io.github.sebastianyousef.heed.focus.AttentionService.syncWith(context, needed)
+    }
+
+    /**
+     * The running focus session, from cached settings, with no IO.
+     *
+     * Read on the foreground poll, so it answers from [currentSettings] rather than
+     * reaching for DataStore. A session that has run past its planned end reports as
+     * finished here even before anything has tidied the row away — the clock is the
+     * authority, not whichever service happens to notice first.
+     */
+    fun focusState(): io.github.sebastianyousef.heed.focus.FocusSession.State? {
+        val s = cachedSettings
+        if (s.focusStartedAt <= 0L) return null
+        return io.github.sebastianyousef.heed.focus.FocusSession.State(
+            label = s.focusLabel.ifBlank { "Focus" },
+            startedAt = s.focusStartedAt,
+            plannedMs = s.focusPlannedMs,
+            allowed = s.focusAllowed.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
+            endRequestedAt = s.focusEndRequestedAt,
+            sessionId = s.focusSessionId,
+        )
+    }
+
+    /**
+     * The launcher and Heed, which a session may never turn away.
+     *
+     * Resolved once and held: blocking bounces to the home screen, so a blocked home
+     * screen is a loop with nowhere to land, and a blocked Heed hides the only button
+     * that ends the session.
+     */
+    private var exemptCache: Set<String>? = null
+
+    fun focusExempt(): Set<String> = exemptCache ?: buildSet {
+        add(context.packageName)
+        runCatching {
+            val home = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_HOME)
+            context.packageManager
+                .queryIntentActivities(home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                .forEach { add(it.activityInfo.packageName) }
+        }
+    }.also { exemptCache = it }
+
+    /** Begin a session. Instant, unlike ending one. */
+    suspend fun startFocus(label: String, plannedMs: Long): Long {
+        val now = System.currentTimeMillis()
+        val id = dao.insertFocusSession(
+            io.github.sebastianyousef.heed.focus.FocusSessionRecord(
+                label = label,
+                startedAt = now,
+                plannedMs = plannedMs,
+            )
+        )
+        dao.closeOrphanedFocusSessions(now, id)
+        settingsStore.startFocus(label, plannedMs, id, now)
+        cachedSettings = settingsStore.settings.first()
+        syncAttentionService()
+        return id
+    }
+
+    /** Ask to stop. The wait is the feature; see [io.github.sebastianyousef.heed.focus.FocusSession.END_DELAY_SECONDS]. */
+    suspend fun requestFocusEnd() {
+        if (cachedSettings.focusEndRequestedAt > 0L) return
+        settingsStore.requestFocusEnd(System.currentTimeMillis())
+        cachedSettings = settingsStore.settings.first()
+    }
+
+    suspend fun cancelFocusEnd() {
+        settingsStore.requestFocusEnd(0L)
+        cachedSettings = settingsStore.settings.first()
+    }
+
+    /**
+     * Close the session out. [early] separates "you decided" from "the clock did", which
+     * is the only thing that makes the history worth keeping.
+     */
+    suspend fun endFocus(early: Boolean) {
+        val state = focusState() ?: return
+        if (state.sessionId > 0) {
+            dao.finishFocusSession(
+                id = state.sessionId,
+                at = System.currentTimeMillis(),
+                early = early,
+                blocks = focusBlocks.get(),
+            )
+        }
+        focusBlocks.set(0)
+        settingsStore.clearFocus()
+        cachedSettings = settingsStore.settings.first()
+        syncAttentionService()
+    }
+
+    /** Turned-away apps in the running session, counted in memory and banked at the end. */
+    private val focusBlocks = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun countFocusBlock() { focusBlocks.incrementAndGet() }
+
+    suspend fun setFocusAllowed(packages: Set<String>) {
+        settingsStore.setFocusAllowed(packages)
+        cachedSettings = settingsStore.settings.first()
     }
 
     suspend fun isBedtimeNow(): Boolean {

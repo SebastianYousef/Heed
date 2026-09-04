@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
+import io.github.sebastianyousef.heed.focus.AppCategory
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 
@@ -120,3 +122,30 @@ fun HourGrid(peakMs: Long, height: Dp, color: Color, modifier: Modifier = Modifi
 val HOUR_GRID_GUTTER = 26.dp
 
 private const val HOUR_MS = 3_600_000L
+
+
+/**
+ * The colour of a kind of time.
+ *
+ * Deliberately only two colours plus nothing. A screen that shades every row says
+ * nothing — the eye needs somewhere neutral to rest before a red bar means anything —
+ * so [AppCategory.NEUTRAL] takes the ordinary surface colour and only the two you
+ * actually named are picked out.
+ *
+ * Not the raw red and green of a traffic light either. These are desaturated enough to
+ * sit under text at small sizes and to survive a colour-blind viewer as two different
+ * lightnesses, which a pure red/green pair does not.
+ */
+@Composable
+fun categoryColor(category: AppCategory): Color = when (category) {
+    AppCategory.PRODUCTIVE -> if (isSystemInDarkTheme()) Color(0xFF6FD08C) else Color(0xFF2E7D4F)
+    AppCategory.DISTRACTING -> if (isSystemInDarkTheme()) Color(0xFFE8836F) else Color(0xFFB3452B)
+    AppCategory.NEUTRAL -> MaterialTheme.colorScheme.primary
+}
+
+/** The word for it, where a colour alone would be ambiguous. */
+fun categoryLabel(category: AppCategory): String = when (category) {
+    AppCategory.PRODUCTIVE -> "Productive"
+    AppCategory.DISTRACTING -> "Distracting"
+    AppCategory.NEUTRAL -> "Unsorted"
+}

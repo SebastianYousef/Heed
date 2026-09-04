@@ -279,7 +279,8 @@ The app is split in two, because "what reaches me" and "where does my time go" a
 different questions and one list made both harder to think about.
 
 **Notifications** is the filter, the inbox and the digest. **Attention** is sessions,
-scrolling, and the rules about them. They share a database and feed each other — see the
+scrolling, and the rules about them. **Focus** is a third thing again — a stretch of time
+you decided in advance, rather than a limit reacting to one app. They share a database and feed each other — see the
 `CLICKED_THEN_SCROLLED` signal below — but they are answered separately.
 
 ## Attention: what an interruption actually costs
@@ -676,6 +677,56 @@ three `GROUP BY` queries that never materialise a row in the heap.
 Two smaller ones: `warmCaches` was being called by three services and started a full set of
 collectors each time, and app icons were rasterised inside composition on the main thread.
 
+## Focus sessions
+
+Every limit elsewhere in Heed is per-app and reactive: you have had enough of this one.
+A focus session asks the opposite question — everything is shut unless you named it — and
+that inversion is why it gets its own screen rather than another slider on the app list.
+Pick a kind of session, pick a length or a stopwatch, and the phone closes.
+
+The load-bearing part is not the timer. **Starting is one tap and stopping takes ninety
+seconds.** The person who set the session and the person who wants out of it four minutes
+into a boring paragraph are not the same person, and only one of them was thinking about
+the afternoon. Everything else on that screen is bookkeeping around that asymmetry.
+
+Ninety seconds rather than never, and the difference matters. A session you genuinely
+cannot leave is a promise Android will not keep — force-stopping Heed ends it instantly,
+and so does turning the accessibility service off — so an app that claimed to be
+uninterruptible would only be lying to the people who believed it. The delay is honest
+friction, not enforcement, and the screen says so.
+
+Three exemptions, none of them preferences. `CriticalApps` already refuses to block
+authenticators, diallers, alarms and password managers, and a session is not a reason to
+change that. The **launcher and Heed itself** are exempt because blocking either is a trap
+rather than a rule: blocking bounces you to the home screen, so a blocked home screen has
+nowhere to send you, and a blocked Heed hides the only button that ends the session.
+
+One thing a session does that nothing else in Heed does: while it runs, the accessibility
+service's `packageNames` filter is dropped entirely. That filter is the single biggest
+thing Heed does for its battery, and a session is the one case that genuinely needs the
+wide net — it turns apps away *precisely because* you never made a rule for them, and an
+app the system filters out is one the service never hears about. Bounded by the session,
+and back to the narrow set the moment it ends.
+
+## Whose time is it
+
+Two per-app settings that change what the statistics mean rather than what Heed does.
+
+**Leave out of the statistics** drops an app from every total, chart and list — done in
+SQL rather than filtered afterwards, so the headline figure and the app list can never
+disagree about it. For the apps that are foreground time without being *your* time: a
+launcher you pass through on the way to something else, the intent resolver, a system
+dialog. Counting twenty seconds of launcher between two real sessions does not make the
+total more accurate, it makes it less.
+
+**Productive or distracting** colours the charts. Deliberately your judgement and never
+Heed's: the same app is a lecture hall for one person and a slot machine for the next, and
+a category shipped in a list would be wrong about the app that matters most. Unsorted is
+the default and stays uncoloured, because a screen that shades every row says nothing —
+the eye needs somewhere neutral to rest before a red bar means anything. Each day's bar
+is then stacked by category, with the split named in words underneath, since a colour
+alone tells you a distinction exists and not which way round it goes.
+
 ## Reading the numbers
 
 Two small things that decide whether the Attention screen answers a question or just
@@ -695,6 +746,17 @@ The inbox's three tabs — Needed, Filtered, Everything — are a pager, so they
 tab row and the pager each follow the other, because driving them independently is how you
 end up reading "Needed" over a list of filtered notifications.
 
+Making them a pager introduced one bug worth recording, because it is invisible in code
+review and obvious on a phone. `HorizontalPager` centres its pages vertically by default,
+and a `LazyColumn` shorter than the viewport wraps its content — so a tab holding four
+notifications drew them as a block floating in the middle of an empty screen. Neither
+component was wrong on its own; the default only becomes visible when something is placed
+inside something else.
+
+Bedtime and screen access used to live on this screen and now live in Settings. They are
+each read once and changed almost never, and they were occupying the top third of the one
+screen you open to answer a question.
+
 ## The widget
 
 Today's screen time, the minutes of it that were scrolling, and how many notifications
@@ -712,7 +774,7 @@ score/      feature extraction, rules, online classifier, blending pipeline
 digest/     summariser interface + template implementation, WorkManager job
 export/     redaction levels, JSON document builder, share-sheet plumbing
 usage/      foreground sessions from UsageStats, notification attribution, judging
-focus/      scroll watcher (no content access), the friction overlay
+focus/      scroll watcher, surface matching, focus sessions, the friction overlay
 notify/     re-raising alerts, inline feedback action
 ui/         Compose: onboarding, inbox, detail ("why"), settings, per-app rules
 ```
@@ -788,7 +850,7 @@ Needs JDK 17–21 (not 26 — AGP rejects it) and the Android SDK.
 ```bash
 export JAVA_HOME=/path/to/jdk-21
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # 136 tests over features, rules, classifier, pipeline, scrolling
+./gradlew testDebugUnitTest      # 147 tests over features, rules, classifier, pipeline, scrolling, sessions
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 

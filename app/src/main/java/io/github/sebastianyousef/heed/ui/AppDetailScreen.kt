@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sebastianyousef.heed.core.Time
+import io.github.sebastianyousef.heed.focus.AppCategory
 import io.github.sebastianyousef.heed.focus.CriticalApps
 import io.github.sebastianyousef.heed.focus.DetectionMode
 import io.github.sebastianyousef.heed.focus.FocusMode
@@ -186,6 +187,49 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                                     }
                                 )
                             },
+                        )
+                    }
+                }
+            }
+
+            SettingBlock("How this app counts") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Leave out of the statistics", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "For the apps that are foreground time without being your " +
+                                "time — a launcher you pass through, the intent picker, a " +
+                                "system dialog. Counting those does not make the total more " +
+                                "accurate, it makes it less.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = rule.excludedFromStats,
+                        onCheckedChange = { vm.setExcludedFromStats(packageName, label, it) },
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text("What kind of time is this?", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Your call, not Heed's. The same app is a lecture hall for one person " +
+                        "and a slot machine for the next, so nothing is classified for you " +
+                        "— only what you name gets a colour in the charts.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AppCategory.entries.forEach { category ->
+                        FilterChip(
+                            selected = rule.category == category,
+                            onClick = { vm.setCategory(packageName, label, category) },
+                            label = { Text(categoryLabel(category)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = categoryColor(category).copy(alpha = 0.25f),
+                            ),
                         )
                     }
                 }

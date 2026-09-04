@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Timelapse
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -33,6 +34,7 @@ import io.github.sebastianyousef.heed.ui.AppDetailScreen
 import io.github.sebastianyousef.heed.ui.AppsScreen
 import io.github.sebastianyousef.heed.ui.AttentionScreen
 import io.github.sebastianyousef.heed.ui.DetailScreen
+import io.github.sebastianyousef.heed.ui.FocusScreen
 import io.github.sebastianyousef.heed.ui.HeedTheme
 import io.github.sebastianyousef.heed.ui.InboxScreen
 import io.github.sebastianyousef.heed.ui.InboxViewModel
@@ -49,6 +51,7 @@ import io.github.sebastianyousef.heed.ui.SettingsScreen
  */
 private enum class Section(val route: String, val label: String) {
     NOTIFICATIONS("notifications", "Notifications"),
+    FOCUS("focus", "Focus"),
     ATTENTION("attention", "Attention"),
 }
 
@@ -117,6 +120,9 @@ class MainActivity : ComponentActivity() {
                                 onApps = { nav.navigate("apps") },
                             )
                         }
+                        composable(Section.FOCUS.route) {
+                            FocusScreen(vm = vm, onSettings = { nav.navigate("settings") })
+                        }
                         composable(Section.ATTENTION.route) {
                             AttentionScreen(
                                 vm = vm,
@@ -176,6 +182,7 @@ private fun SectionBar(nav: NavHostController, route: String?) {
                     Icon(
                         when (section) {
                             Section.NOTIFICATIONS -> Icons.Default.Notifications
+                            Section.FOCUS -> Icons.Default.SelfImprovement
                             Section.ATTENTION -> Icons.Default.Timelapse
                         },
                         contentDescription = section.label,

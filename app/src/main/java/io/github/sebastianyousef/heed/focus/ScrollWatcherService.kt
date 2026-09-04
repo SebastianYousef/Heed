@@ -90,15 +90,46 @@ class ScrollWatcherService : AccessibilityService() {
         // everything else stops arriving at all.
         scope.launch {
             HeedRepository.get(this@ScrollWatcherService).dao.observeFocusRules().collect {
-                restrictToInterestingApps(it.map { rule -> rule.packageName })
+                ruledPackages = it.map { rule -> rule.packageName }
+                restrictToInterestingApps()
+            }
+        }
+        // A focus session blocks apps that have no rule, which means it has to be told
+        // about apps the filter would otherwise drop. Re-applied on every change so the
+        // wide net exists only while a session is running.
+        scope.launch {
+            HeedRepository.get(this@ScrollWatcherService).settings.collect {
+                val active = it.focusStartedAt > 0L
+                if (active != focusWide) {
+                    focusWide = active
+                    restrictToInterestingApps()
+                }
             }
         }
     }
 
-    private fun restrictToInterestingApps(ruled: List<String>) {
+    private var ruledPackages: List<String> = emptyList()
+
+    /**
+     * Whether the package filter is currently open to everything.
+     *
+     * Naming every app is what this filter exists to avoid — it was the single biggest
+     * thing Heed cost in the background. A focus session is the one case that genuinely
+     * needs it, because it turns away apps precisely on the grounds that you never made
+     * a rule for them, and an app the system filters out is one the service never hears
+     * about. Bounded by the session, and back to the narrow set the moment it ends.
+     */
+    private var focusWide = false
+
+    private fun restrictToInterestingApps() {
         val info = serviceInfo ?: return
+        if (focusWide) {
+            info.packageNames = null
+            runCatching { serviceInfo = info }
+            return
+        }
         val wanted = buildSet {
-            addAll(ruled)
+            addAll(ruledPackages)
             // Known scrollers even without a rule, so measurement can start the moment
             // one is installed rather than after a rule is created for it.
             addAll(KnownScrollers.packages.keys)
@@ -476,9 +507,15 @@ class ScrollWatcherService : AccessibilityService() {
     private fun checkOnOpen(pkg: String) {
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
-            val verdict = FocusEnforcer.from(repo.dao) { repo.isBedtimeNow() }.onAppOpened(pkg)
+            val verdict = FocusEnforcer.from(
+                dao = repo.dao,
+                bedtime = { repo.isBedtimeNow() },
+                focus = { repo.focusState() },
+                exempt = { repo.focusExempt() },
+            ).onAppOpened(pkg)
             if (verdict is FocusEnforcer.Verdict.Block) {
                 lastBlockAt = System.currentTimeMillis()
+                if (repo.focusState() != null) repo.countFocusBlock()
                 FocusOverlay.block(surfacer, verdict.headline, verdict.detail)
             }
         }
