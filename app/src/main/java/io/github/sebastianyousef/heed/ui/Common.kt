@@ -85,10 +85,14 @@ fun HourGrid(peakMs: Long, height: Dp, color: Color, modifier: Modifier = Modifi
         while (hour <= hours) {
             val fraction = (hour * HOUR_MS).toFloat() / peakMs
             val y = height * fraction
+            // The line starts after the gutter so it never runs underneath its own
+            // label, and the label sits centred on it rather than above it — stacked
+            // above, the topmost one drifts off the chart entirely on a heavy day.
             Box(
                 Modifier
                     .align(Alignment.BottomStart)
                     .offset(y = -y)
+                    .padding(start = HOUR_GRID_GUTTER)
                     .fillMaxWidth()
                     .height(1.dp)
                     .background(color.copy(alpha = 0.18f))
@@ -99,11 +103,20 @@ fun HourGrid(peakMs: Long, height: Dp, color: Color, modifier: Modifier = Modifi
                 color = color.copy(alpha = 0.45f),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .offset(y = -y - 13.dp),
+                    .offset(y = -y + 7.dp),
             )
             hour += step
         }
     }
 }
+
+/**
+ * The strip down the left of a chart that belongs to the hour labels.
+ *
+ * Callers inset their bars by exactly this, so a label can never be drawn on top of a
+ * bar — which is what happened when the grid was first added and Sunday's bar sat
+ * underneath "1h" and "2h".
+ */
+val HOUR_GRID_GUTTER = 26.dp
 
 private const val HOUR_MS = 3_600_000L

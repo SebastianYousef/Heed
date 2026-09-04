@@ -109,13 +109,18 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AppUsageCard(
-                vm = vm,
-                packageName = packageName,
-                label = label,
-                todayMs = stat?.todayMs ?: 0L,
-                weekMs = weekMs,
-                opensToday = stat?.launchesToday ?: 0,
+            val days by vm.appDays(packageName).collectAsState(initial = emptyList())
+            val opens by vm.appOpens(packageName).collectAsState(initial = emptyList())
+            var selectedDay by remember(packageName) { mutableStateOf<Int?>(null) }
+
+            // The same card the Attention screen draws, at a different scope. Nothing
+            // about how it reads or behaves should change between the two.
+            UsageChartCard(
+                timeDays = days,
+                openDays = opens,
+                selectedDay = selectedDay,
+                onSelect = { selectedDay = it },
+                leading = { AppIcon(packageName, label, size = 46) },
             )
 
             // The number only Heed can produce, because only Heed holds both halves.
@@ -443,153 +448,6 @@ private fun DetectionPicker(
         }
     }
 }
-
-/**
- * What this one app actually costs, before any of the controls for changing it.
- *
- * Put at the top and given the most room deliberately. A limit is a decision, and nobody
- * makes it from a list position — they make it from "Snapchat, two hours yesterday, and
- * forty opens". The chart is the argument; the sliders below are only how you act on it.
- */
-@Composable
-private fun AppUsageCard(
-    vm: InboxViewModel,
-    packageName: String,
-    label: String,
-    todayMs: Long,
-    weekMs: Long,
-    opensToday: Int,
-) {
-    val days by vm.appDays(packageName).collectAsState(initial = emptyList())
-    val opens by vm.appOpens(packageName).collectAsState(initial = emptyList())
-    var showOpens by remember { mutableStateOf(false) }
-
-    var selectedDay by remember { mutableStateOf<Int?>(null) }
-
-    val series = if (showOpens) opens else days
-    val peak = (series.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
-    val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
-    val weekday = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
-    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
-    val dailyAverage = days.map { it.totalMs }.average().let { if (it.isNaN()) 0.0 else it }
-
-    Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppIcon(packageName, label, size = 46)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        Time.duration(todayMs),
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = onContainer,
-                    )
-                    Text(
-                        "today · $opensToday opens",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = onContainer.copy(alpha = 0.75f),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = !showOpens,
-                    onClick = { showOpens = false },
-                    label = { Text("Time") },
-                )
-                FilterChip(
-                    selected = showOpens,
-                    onClick = { showOpens = true },
-                    label = { Text("Opens") },
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(APP_CHART_HEIGHT)) {
-                // Only for the time series. On the opens chart `totalMs` is a count, and
-                // ruling a count with hour lines would be a chart that lies quietly.
-                if (!showOpens) HourGrid(peak, APP_CHART_HEIGHT, onContainer)
-                Row(
-                    Modifier.fillMaxWidth().height(APP_CHART_HEIGHT),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    series.forEachIndexed { index, day ->
-                        val selected = selectedDay == index
-                        val fraction by animateFloatAsState(
-                            targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
-                            label = "appbar",
-                        )
-                        Column(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(8.dp))
-                                // Tapping the selected bar clears it, so the summary line
-                                // below can get back to the week without a second control
-                                // that exists only to undo the first.
-                                .clickable { selectedDay = if (selected) null else index },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                        ) {
-                            Box(
-                                Modifier.fillMaxWidth().weight(1f),
-                                contentAlignment = Alignment.BottomCenter,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth(if (selected) 1f else 0.75f)
-                                        .fillMaxHeight(fraction)
-                                        .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
-                                        .background(onContainer.copy(alpha = if (selected) 1f else 0.55f))
-                                )
-                            }
-                            Text(
-                                initials.format(Date(day.startOfDay)),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = onContainer.copy(alpha = if (selected) 1f else 0.6f),
-                                modifier = Modifier.padding(top = 5.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-            // One line that answers whichever question is being asked: the week when
-            // nothing is selected, and that day exactly when a bar is. The chart is
-            // scaled to its own peak, so without this there is no way to read a number
-            // off it at all — which was the gap.
-            val picked = selectedDay?.let { series.getOrNull(it) }
-            Text(
-                when {
-                    picked != null && showOpens ->
-                        "${weekday.format(Date(picked.startOfDay))}: ${picked.totalMs} opens"
-                    picked != null ->
-                        "${weekday.format(Date(picked.startOfDay))}: ${Time.duration(picked.totalMs)}"
-                    showOpens -> "${opens.sumOf { it.totalMs }} opens this week · tap a bar for one day"
-                    else -> "${Time.duration(weekMs)} this week · " +
-                        "${Time.duration(dailyAverage.toLong())} a day on average"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (picked != null) FontWeight.SemiBold else FontWeight.Normal,
-                color = onContainer.copy(alpha = 0.85f),
-            )
-        }
-    }
-}
-
-/** Matches the week chart on the Attention screen, so the two read at the same scale. */
-private val APP_CHART_HEIGHT = 104.dp
 
 @Composable
 private fun SettingBlock(title: String, content: @Composable () -> Unit) {

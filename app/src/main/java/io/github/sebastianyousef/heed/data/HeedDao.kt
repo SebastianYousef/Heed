@@ -397,6 +397,23 @@ interface HeedDao {
     )
     fun observeOpensForApp(pkg: String, originOfDay: Long): Flow<List<DayTotalRow>>
 
+    /**
+     * Opens per calendar day across every app.
+     *
+     * The per-app chart has had this since it was written and the whole-phone one had
+     * not, which is most of why the two screens behaved differently. Same shape as
+     * [observeDayTotals] so both feed the same component.
+     */
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex, COUNT(*) AS totalMs
+        FROM sessions
+        WHERE startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeOpenDays(originOfDay: Long): Flow<List<DayTotalRow>>
+
     /** Totals per calendar day, for the chart. One row per day, not one per session. */
     @Query(
         """

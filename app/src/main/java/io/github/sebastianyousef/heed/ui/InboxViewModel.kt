@@ -142,15 +142,36 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * that shows whether a rule you set on Tuesday actually changed anything.
      */
     val usageDays: StateFlow<List<DayTotal>> =
-        repo.dao.observeDayTotals(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)).map { rows ->
-            val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
-            val byIndex = rows.associate { it.dayIndex to it.totalMs }
-            (0..6).map { i ->
-                DayTotal(startOfDay = origin + i * io.github.sebastianyousef.heed.core.Time.DAY_MS, totalMs = byIndex[i] ?: 0L)
-            }
-        }
+        repo.dao.observeDayTotals(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .map(::toWeek)
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The same week as opens rather than minutes, so both charts offer both metrics. */
+    val usageOpenDays: StateFlow<List<DayTotal>> =
+        repo.dao.observeOpenDays(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .map(::toWeek)
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Seven buckets, oldest first, with the empty days present rather than missing.
+     *
+     * SQLite returns only days that have rows, and a chart drawn straight off that has
+     * six bars one week and four the next — with Wednesday silently sliding into
+     * Tuesday's place. Every caller needs the gaps filled, so none of them do it
+     * themselves.
+     */
+    private fun toWeek(rows: List<io.github.sebastianyousef.heed.data.DayTotalRow>): List<DayTotal> {
+        val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
+        val byIndex = rows.associate { it.dayIndex to it.totalMs }
+        return (0..6).map { i ->
+            DayTotal(
+                startOfDay = origin + i * io.github.sebastianyousef.heed.core.Time.DAY_MS,
+                totalMs = byIndex[i] ?: 0L,
+            )
+        }
+    }
 
     private val _range = MutableStateFlow(UsageRange(6))
     val range: StateFlow<UsageRange> = _range
@@ -197,21 +218,13 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * rather than sliced out of a whole-phone list so the screen holds one app's data and
      * not everything.
      */
-    fun appDays(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
-        val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
-        return repo.dao.observeDayTotalsForApp(pkg, origin).map { rows ->
-            val byIndex = rows.associate { it.dayIndex to it.totalMs }
-            (0..6).map { DayTotal(origin + it * io.github.sebastianyousef.heed.core.Time.DAY_MS, byIndex[it] ?: 0L) }
-        }.flowOn(Dispatchers.Default)
-    }
+    fun appDays(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> =
+        repo.dao.observeDayTotalsForApp(pkg, io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .map(::toWeek).flowOn(Dispatchers.Default)
 
-    fun appOpens(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
-        val origin = io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
-        return repo.dao.observeOpensForApp(pkg, origin).map { rows ->
-            val byIndex = rows.associate { it.dayIndex to it.totalMs }
-            (0..6).map { DayTotal(origin + it * io.github.sebastianyousef.heed.core.Time.DAY_MS, byIndex[it] ?: 0L) }
-        }.flowOn(Dispatchers.Default)
-    }
+    fun appOpens(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> =
+        repo.dao.observeOpensForApp(pkg, io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .map(::toWeek).flowOn(Dispatchers.Default)
 
     /** Turn one of an app's shipped carve-outs on or off. */
     fun setException(rule: io.github.sebastianyousef.heed.focus.FocusRule, key: String, on: Boolean) =

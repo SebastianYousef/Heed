@@ -86,6 +86,7 @@ fun AttentionScreen(
     val rules by vm.focusRules.collectAsState()
     val settings by vm.settings.collectAsState()
     val days by vm.usageDays.collectAsState()
+    val openDays by vm.usageOpenDays.collectAsState()
     val rows by vm.rangeApps.collectAsState()
     val range by vm.range.collectAsState()
 
@@ -128,12 +129,11 @@ fun AttentionScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                ScreenTimeCard(
-                    totalMs = total,
-                    opens = rows.sumOf { it.launches },
-                    days = days,
-                    range = range,
-                    onSelect = vm::selectRange,
+                UsageChartCard(
+                    timeDays = days,
+                    openDays = openDays,
+                    selectedDay = range.dayIndex,
+                    onSelect = { vm.selectRange(UsageRange(it)) },
                 )
             }
 
@@ -199,163 +199,6 @@ fun AttentionScreen(
         }
     }
 }
-
-/**
- * The headline card: one number, and seven bars you can actually touch.
- *
- * The bars are the control, not decoration. Every screen-time app draws a week chart and
- * almost none let you tap it, which is odd — "what happened on Tuesday" is the obvious
- * next question and the data is already on screen. Tapping a bar re-queries that day and
- * the list below follows, so the chart and the list are never showing different things.
- */
-@Composable
-private fun ScreenTimeCard(
-    totalMs: Long,
-    opens: Int,
-    days: List<DayTotal>,
-    range: UsageRange,
-    onSelect: (UsageRange) -> Unit,
-) {
-    val haptics = LocalHapticFeedback.current
-    val formatter = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
-
-    // The comparison is the part that means something. Four hours is not a number anyone
-    // can judge; four hours against your own average is.
-    val average = days.filter { it.totalMs > 0 }.map { it.totalMs }.average()
-        .let { if (it.isNaN()) 0.0 else it }
-    val delta = if (range.isWeek || average <= 0) null else (totalMs - average).toLong()
-
-    Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Text(
-                when {
-                    range.isWeek -> "Last 7 days"
-                    range.dayIndex == 6 -> "Today"
-                    range.dayIndex == 5 -> "Yesterday"
-                    else -> days.getOrNull(range.dayIndex ?: 6)
-                        ?.let { formatter.format(Date(it.startOfDay)) } ?: ""
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-            )
-            Text(
-                Time.duration(totalMs),
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Text(
-                buildString {
-                    append("$opens app opens")
-                    delta?.let {
-                        val minutes = kotlin.math.abs(it) / 60_000
-                        if (minutes >= 5) {
-                            append(if (it < 0) " · ${minutes}m below" else " · ${minutes}m above")
-                            append(" your average")
-                        }
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-            )
-
-            Spacer(Modifier.height(16.dp))
-            WeekChart(days, range) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onSelect(it)
-            }
-
-            Spacer(Modifier.height(12.dp))
-            TextButton(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSelect(UsageRange(if (range.isWeek) 6 else null))
-                },
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-            ) {
-                Text(
-                    if (range.isWeek) "Show a single day" else "Show the whole week",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Seven bars, scaled to the worst day.
- *
- * Scaled to the peak rather than to a fixed ceiling on purpose: an absolute axis makes a
- * good week and a bad week look nearly identical, and the useful signal here is the
- * shape. Heights animate so that a change after a rule takes effect is something you
- * watch happen rather than something you have to remember.
- */
-@Composable
-private fun WeekChart(
-    days: List<DayTotal>,
-    range: UsageRange,
-    onSelect: (UsageRange) -> Unit,
-) {
-    val peak = (days.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
-    val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
-    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
-
-    Box(Modifier.fillMaxWidth().height(CHART_HEIGHT)) {
-        HourGrid(peak, CHART_HEIGHT, onContainer)
-        Row(
-            Modifier.fillMaxWidth().height(CHART_HEIGHT),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-        days.forEachIndexed { index, day ->
-            val selected = !range.isWeek && range.dayIndex == index
-            val fraction by animateFloatAsState(
-                targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
-                label = "bar",
-            )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onSelect(UsageRange(index)) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Bottom,
-            ) {
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.BottomCenter) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(if (selected) 1f else 0.72f)
-                            .fillMaxHeight(fraction)
-                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-                            .background(onContainer.copy(alpha = if (selected) 1f else 0.35f))
-                    )
-                }
-                Text(
-                    if (selected) Time.duration(day.totalMs)
-                    else initials.format(Date(day.startOfDay)),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = onContainer.copy(alpha = if (selected) 1f else 0.6f),
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-        }
-        }
-    }
-}
-
-/**
- * Tall enough for four gridlines to be distinguishable, short enough that the app list —
- * which is what you came to read — is still on screen underneath.
- */
-private val CHART_HEIGHT = 104.dp
 
 /** One app: icon, name, time, and a bar showing its share of the period. */
 @Composable
