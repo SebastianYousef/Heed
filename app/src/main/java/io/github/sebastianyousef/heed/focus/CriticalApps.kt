@@ -57,10 +57,22 @@ object CriticalApps {
      * Deliberately broad. A false positive costs one scroll measurement; a false negative
      * costs somebody the ability to pay for their lunch.
      */
+    /**
+     * Narrow on purpose, after the wide version caused the exact failure it was meant to
+     * prevent.
+     *
+     * "wallet" matched a crypto wallet the user opened once, Heed switched its own screen
+     * access off, and — because Android will not let an app re-enable its own
+     * accessibility service — every block stopped working permanently, with nothing on
+     * screen to explain why. A false positive here is not a small cost; it silently
+     * disables the feature the app exists for.
+     *
+     * So: no generic money words, and nothing short enough to collide. Anything not
+     * listed is handled by offering the user the choice rather than deciding for them.
+     */
     private val bankKeywords = listOf(
-        "bank", "bankid", "swish", "revolut", "paypal", "klarna", "swedbank", "nordea",
-        "seb", "handelsbanken", "avanza", "nordnet", "monzo", "revolut", "wise",
-        "coinbase", "wallet", "id06", "freja", "mobilepay", "vipps", "blik",
+        "bankid", "swedbank", "nordea", "handelsbanken", "danskebank", "mobilbank",
+        "mobilebank", "sparbank", "netbank", "swish", "mobilepay",
     )
 
     /**
@@ -72,7 +84,9 @@ object CriticalApps {
     private val bankPackages = setOf(
         "com.bankid.bus",
         "se.bankgirot.swish",
-        "com.google.android.apps.walletnfcrel",
+        "se.nordea.mobilebank",
+        "se.avanzabank.androidapplikation",
+        "com.revolut.revolut",
     )
 
     fun isSecuritySensitive(packageName: String): Boolean {

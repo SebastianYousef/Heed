@@ -46,6 +46,47 @@ object SurfaceCapture {
         node?.viewIdResourceName == viewId
 
     /**
+     * Is a view with this id not merely present, but actually on screen and big?
+     *
+     * Presence alone is the wrong test for a feed that shares a scrolling list with
+     * something else. Snapchat's Community tab holds your friends' stories along the top
+     * and Discover beneath them, and both are in the node tree from the moment the tab
+     * opens — so "df_large_story exists" is true while you are still looking at your
+     * friends, and "friend_card_frame exists" stays true after you have scrolled well
+     * past them. Neither answers the question that matters, which is what is in front of
+     * your eyes right now.
+     *
+     * Bounds do answer it. A card scrolled off the top has a negative bottom edge; one
+     * below the fold starts past the screen height. Requiring a real intersection, and a
+     * meaningful share of the viewport, turns "is it in the layout" into "is it what you
+     * are looking at".
+     */
+    fun hasVisibleAnchor(
+        root: AccessibilityNodeInfo?,
+        viewId: String,
+        screenHeight: Int,
+        minFraction: Float = 0f,
+    ): Boolean {
+        root ?: return false
+        val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(viewId) }
+            .getOrNull() ?: return false
+        if (nodes.isEmpty()) return false
+
+        val rect = android.graphics.Rect()
+        var covered = 0
+        for (node in nodes) {
+            node ?: continue
+            node.getBoundsInScreen(rect)
+            val top = rect.top.coerceAtLeast(0)
+            val bottom = rect.bottom.coerceAtMost(screenHeight)
+            if (bottom > top && rect.width() > 0) covered += bottom - top
+        }
+        if (covered <= 0) return false
+        if (minFraction <= 0f) return true
+        return covered.toFloat() / screenHeight >= minFraction
+    }
+
+    /**
      * The view's own id and those of its nearest parents.
      *
      * A tap lands on whatever is under the finger — a thumbnail, a caption, a play icon —

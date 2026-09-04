@@ -41,12 +41,18 @@ class BankingDetectionTest {
     }
 
     @Test
-    fun `short keywords match a whole segment, not a substring`() {
-        // "seb" is a Swedish bank, and must not swallow every package containing those
-        // three letters in a row.
-        assertTrue(CriticalApps.isSecuritySensitive("com.seb.privatkund"))
+    fun `the list is narrow, because a false positive is not recoverable`() {
+        // This started as a wide keyword list including "wallet", "seb" and "wise". It
+        // matched a crypto wallet, screen access switched itself off, and Android does
+        // not let an app turn its own accessibility service back on — so blocking was
+        // dead until the user happened to notice. Short and generic words are gone, and
+        // anything not listed is offered to the user rather than decided for them.
+        assertFalse(CriticalApps.isSecuritySensitive("com.cakewallet.cake_wallet"))
         assertFalse(CriticalApps.isSecuritySensitive("com.sebastianyousef.something"))
         assertFalse(CriticalApps.isSecuritySensitive("io.github.sebastianyousef.heed"))
+        // Distinctive names still match, wherever they sit in the package.
+        assertTrue(CriticalApps.isSecuritySensitive("se.swedbank.mobil"))
+        assertTrue(CriticalApps.isSecuritySensitive("dk.danskebank.mobile"))
     }
 
     @Test

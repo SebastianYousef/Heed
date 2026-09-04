@@ -88,6 +88,15 @@ object KnownSurfaces {
          * the line the user drew: not the discovery feed, but never my friends.
          */
         val unless: String? = null,
+
+        /**
+         * How much of the screen this must actually cover to count.
+         *
+         * Zero means presence anywhere on screen is enough, which is right for a surface
+         * that fills the window. A feed sharing a list with something else needs a real
+         * share of the viewport before it can be said to be what you are looking at.
+         */
+        val minFraction: Float = 0f,
     )
 
     /**
@@ -109,10 +118,21 @@ object KnownSurfaces {
         // project's list — where they disagreed, the list was wrong. Mindful's
         // `spotlight_card_static_thumbnail` does not exist in this version at all, which
         // is a reminder that these rot silently and that failing open matters.
-        Anchor("com.snapchat.android", "Spotlight", "com.snapchat.android:id/spotlight_container"),
+        // This container turns out to host the full-screen viewer for Discover stories
+        // as well as the Spotlight feed itself — observed on the device by opening a
+        // Discover card and finding it in the tree. That is why the label names the
+        // recommendations rather than Spotlight: one anchor, both ways in.
+        Anchor(
+            "com.snapchat.android", "Snapchat's recommendations",
+            "com.snapchat.android:id/spotlight_container",
+        ),
+        // Discover fires once its cards own most of the screen and the friends' row has
+        // genuinely scrolled out of view — both judged on bounds, not on presence in the
+        // layout, because on this tab everything is present all of the time.
         Anchor(
             "com.snapchat.android", "Discover", "com.snapchat.android:id/df_large_story",
             unless = "com.snapchat.android:id/friend_card_frame",
+            minFraction = 0.55f,
         ),
         // Tapping a Discover card is the other way into a recommended video, and the one
         // the guard above deliberately leaves open: while your friends' stories are on

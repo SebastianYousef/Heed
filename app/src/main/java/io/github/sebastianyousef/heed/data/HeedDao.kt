@@ -336,6 +336,29 @@ interface HeedDao {
     )
     fun observeAlertCounts(since: Long): Flow<List<AlertCountRow>>
 
+    /** One app's totals per calendar day, for its own chart. */
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex,
+               SUM(durationMs) AS totalMs
+        FROM sessions
+        WHERE packageName = :pkg AND startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeDayTotalsForApp(pkg: String, originOfDay: Long): Flow<List<DayTotalRow>>
+
+    /** Opens per calendar day for one app — the number that usually tells the story. */
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex, COUNT(*) AS totalMs
+        FROM sessions
+        WHERE packageName = :pkg AND startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeOpensForApp(pkg: String, originOfDay: Long): Flow<List<DayTotalRow>>
+
     /** Totals per calendar day, for the chart. One row per day, not one per session. */
     @Query(
         """

@@ -260,7 +260,13 @@ class ScrollWatcherService : AccessibilityService() {
             return
         }
         val now = System.currentTimeMillis()
-        if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
+        // A surface block gets its own, much shorter cooldown. It used to share the
+        // fifteen-second one with scroll interventions and to set `interventionShown`,
+        // which is a once-per-visit flag cleared only when the *package* changes — so
+        // after Spotlight was blocked once, nothing else in Snapchat could be blocked
+        // until you left the app entirely. That is what made it look intermittent: it
+        // was working exactly once per visit.
+        if (now - lastSurfaceBlockAt < SURFACE_COOLDOWN_MS) return
         if (CriticalApps.isProtected(pkg)) return
 
         // Cheap exits first, in the order they are cheap. Almost every event in a normal
@@ -278,13 +284,19 @@ class ScrollWatcherService : AccessibilityService() {
         // resolved here rather than handed to a coroutine to read later — a recycled node
         // returns nothing, which is indistinguishable from "the feed is not open".
         val root = rootInActiveWindow
+        val height = screenHeight()
         val hit = anchors.firstOrNull { anchor ->
+            if (anchor.match == KnownSurfaces.Match.CLICK) return@firstOrNull false
             val present = when (anchor.match) {
                 KnownSurfaces.Match.SOURCE -> SurfaceCapture.sourceHasId(source, anchor.viewId)
-                KnownSurfaces.Match.WINDOW, KnownSurfaces.Match.CLICK ->
-                    SurfaceCapture.hasAnchor(root, anchor.viewId)
+                else -> SurfaceCapture.hasVisibleAnchor(root, anchor.viewId, height, anchor.minFraction)
             }
-            present && anchor.unless?.let { !SurfaceCapture.hasAnchor(root, it) } ?: true
+            // The veto is judged on what is visible too: a friends' row scrolled off the
+            // top is still in the layout, and treating that as "friends are on screen"
+            // is why Discover never blocked at all.
+            present && anchor.unless?.let {
+                !SurfaceCapture.hasVisibleAnchor(root, it, height, VETO_MIN_FRACTION)
+            } ?: true
         }
 
         // Fingerprinting walks up to four hundred nodes, so it only happens for apps
@@ -297,9 +309,20 @@ class ScrollWatcherService : AccessibilityService() {
             SurfaceMatcher.match(tokens, taught.filter { it.block })?.label ?: return
         }
 
-        lastBlockAt = now
-        interventionShown = true
+        lastSurfaceBlockAt = now
         bounceOut(label, rule.appLabel)
+    }
+
+    /**
+     * The usable height of the screen, cached. Read once because it cannot change
+     * without the service being reconfigured, and it is needed on every anchor test.
+     */
+    private var cachedHeight = 0
+    private fun screenHeight(): Int {
+        if (cachedHeight > 0) return cachedHeight
+        val metrics = resources.displayMetrics
+        cachedHeight = metrics.heightPixels
+        return cachedHeight
     }
 
     /**
@@ -325,8 +348,7 @@ class ScrollWatcherService : AccessibilityService() {
         val ids = SurfaceCapture.selfAndAncestorIds(source, CLICK_ANCESTOR_DEPTH)
         val hit = clickAnchors.firstOrNull { it.viewId in ids } ?: return
 
-        lastBlockAt = System.currentTimeMillis()
-        interventionShown = true
+        lastSurfaceBlockAt = System.currentTimeMillis()
         bounceOut(hit.label, rule.appLabel)
     }
 
@@ -352,18 +374,25 @@ class ScrollWatcherService : AccessibilityService() {
             val pkg = currentPackage ?: return
             val anchors = KnownSurfaces.forPackage(pkg)
             val root = rootInActiveWindow ?: return
+            // Judged on the same visible-bounds test that decided to block, so the
+            // escalation cannot be driven by a card that is merely in the layout.
             val stillThere = anchors.any { a ->
-                a.match != KnownSurfaces.Match.SOURCE && SurfaceCapture.hasAnchor(root, a.viewId)
+                a.match == KnownSurfaces.Match.WINDOW &&
+                    SurfaceCapture.hasVisibleAnchor(root, a.viewId, screenHeight(), a.minFraction)
             }
             if (!stillThere) return
-            when (escalate) {
-                0 -> {
-                    escalate = 1
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    main.postDelayed(this, EXIT_RECHECK_MS)
-                }
-                else -> performGlobalAction(GLOBAL_ACTION_HOME)
-            }
+            // Back, and at most once more. Never Home.
+            //
+            // The first version fell back to the home screen when two Backs had not
+            // worked, which threw the user out of Snapchat entirely — the exact thing
+            // this feature exists to avoid, and worse than the feed it was trying to
+            // prevent. If the app will not leave the screen, the honest outcome is to
+            // stop pressing: a feed that was not closed is a small failure, and ejecting
+            // someone from a conversation is a large one.
+            if (escalate >= MAX_EXIT_ATTEMPTS) return
+            escalate++
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            main.postDelayed(this, EXIT_RECHECK_MS)
         }
     }
 
@@ -386,15 +415,29 @@ class ScrollWatcherService : AccessibilityService() {
      * the UI takes effect on the next app launch rather than the next reboot.
      */
     private fun stepAsideFor(pkg: String) {
+        if (pkg == lastOfferedFor) return
+        lastOfferedFor = pkg
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
-            if (!repo.settings.first().pauseForBanking) return@launch
-            flush(System.currentTimeMillis())
-            io.github.sebastianyousef.heed.notify.Notifier(this@ScrollWatcherService)
-                .screenAccessPaused(pkg)
-            runCatching { disableSelf() }
+            val notifier = io.github.sebastianyousef.heed.notify.Notifier(this@ScrollWatcherService)
+            if (repo.settings.first().pauseForBanking) {
+                flush(System.currentTimeMillis())
+                notifier.screenAccessPaused(pkg)
+                runCatching { disableSelf() }
+            } else {
+                // The default. Offer the choice instead of taking it, because Heed cannot
+                // undo the taking.
+                notifier.offerToStepAside(
+                    pkg,
+                    io.github.sebastianyousef.heed.capture.NotificationMapper
+                        .appLabel(this@ScrollWatcherService, pkg),
+                )
+            }
         }
     }
+
+    /** Offer once per app per connection, so a bank you use daily is not a daily nag. */
+    private var lastOfferedFor: String? = null
 
     /** Persist the stretch just finished so the usage tracker can pair it with a session. */
     private fun flush(now: Long) {
@@ -444,6 +487,7 @@ class ScrollWatcherService : AccessibilityService() {
     private var lastBlockAt = 0L
     private var lastPreciseCheck = 0L
     private var lastBudgetCheck = 0L
+    private var lastSurfaceBlockAt = 0L
 
     companion object {
         /**
@@ -478,11 +522,31 @@ class ScrollWatcherService : AccessibilityService() {
         /** How often a daily scrolling budget is worth re-reading from disk. */
         private const val BUDGET_CHECK_MS = 5_000L
 
+        /**
+         * Long enough not to fight an app mid-animation, short enough that walking back
+         * into the same feed is stopped again rather than waved through.
+         */
+        private const val SURFACE_COOLDOWN_MS = 2_500L
+
+        /**
+         * How much of the screen the vetoing view must still occupy to count as visible.
+         * A sliver of a friends' row disappearing off the top is not "looking at your
+         * friends".
+         */
+        private const val VETO_MIN_FRACTION = 0.08f
+
         /** How far up from a tapped view to look for the card that owns it. */
         private const val CLICK_ANCESTOR_DEPTH = 6
 
-        /** Long enough for the app to finish animating away from the blocked screen. */
-        private const val EXIT_RECHECK_MS = 700L
+        /**
+         * Long enough for the app to finish animating away from the blocked screen.
+         * Seven hundred milliseconds was not: the check fired while the transition was
+         * still running, decided the screen was still there, and pressed again.
+         */
+        private const val EXIT_RECHECK_MS = 1_200L
+
+        /** Two presses, then leave it alone. */
+        private const val MAX_EXIT_ATTEMPTS = 2
 
         @Volatile var connected = false
             private set

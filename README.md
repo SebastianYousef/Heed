@@ -312,12 +312,47 @@ Heed component to `null`, with the notification posted.
 
 ### A private space is a separate user
 
-Worth knowing if a bank still misbehaves. Accessibility services are enabled per Android
-user, so a service enabled in the owner profile has no bearing on an app installed in a
-private space — and vice versa. On the test device, four of the five banking apps live in
-the private space, which means the owner-profile service was never what they were
-reacting to. What *did* affect them was a second copy of Heed that `adb install` had put
-into the private space; installing with `--user 0` avoids it.
+This turned out to be the whole explanation, and it is worth stating plainly because it
+looks like magic from the outside: *how does Mindful read the screen and still let banking
+apps run?*
+
+It does not do anything clever. **Accessibility services are enabled per Android user.**
+On the test device:
+
+| | owner profile | private space |
+|---|---|---|
+| Mindful | ✓ | — |
+| Nordea, BankID, Swish, Avanza | — | ✓ |
+| Revolut | ✓ | — |
+
+Mindful's service has simply never been in the same profile as the four banks that object
+to it. Heed's was, because `adb install` without `--user 0` puts a copy in every profile,
+including the private space — so the copy living *beside* the banks was the one they were
+reacting to. Removing it fixed the conflict that a whole subsystem had been built to work
+around.
+
+Install with `--user 0`.
+
+### Never disable something you cannot re-enable
+
+The first version of the step-aside switched screen access off automatically whenever it
+saw a banking app. The keyword list included "wallet". A crypto wallet on the test device
+matched it, the accessibility service disabled itself, and — because Android does not let
+an app re-enable its own accessibility service — every block stopped working permanently,
+with nothing on screen to explain why. It presented as "the Spotlight block is
+inconsistent", and it was: it worked until the first time a wallet was opened, then never
+again.
+
+Two changes came out of that, and the second is the general lesson.
+
+The list is now narrow: no generic money words, nothing short enough to collide, and the
+banks that genuinely refuse accessibility named outright.
+
+And the default is now to **offer** rather than to act. Heed notices a banking app and
+posts a silent notification with a "Turn it off" button; the automatic version is still
+there behind a switch that says what it costs. An irreversible action taken on a guess
+needs consent, not a default — the asymmetry is the point, since being asked costs one tap
+on a rare occasion, and guessing wrong costs the feature entirely and silently.
 
 ## Grayscale
 
@@ -364,11 +399,32 @@ looking at your friends. So an anchor can carry an `unless`: another id whose pr
 vetoes it. Discover blocks only when `friend_card_frame` has scrolled away, which is
 exactly the line to draw.
 
+Presence turned out to be the wrong test entirely. Everything on the Community tab is in
+the node tree all of the time — friends' cards are still there after you scroll past them,
+and Discover's cards are there before you reach them — so "does this id exist" answers
+neither question. Anchors are now matched on **visible bounds**: a card scrolled off the
+top has a negative bottom edge, and an anchor can require a real share of the viewport
+before it counts as what you are looking at. Discover asks for 55% of the screen; the
+friends' guard releases once their row falls below 8%.
+
+The other bug was a flag. A surface block set `interventionShown`, which is cleared only
+when the *package* changes — so after Spotlight was blocked once, nothing else in Snapchat
+could be blocked until the app was left entirely. It was not intermittent; it was working
+exactly once per visit. Surface blocks now carry their own short cooldown.
+
 Verified end to end on the device, with Snapchat set to Block:
 
-- Spotlight — bounces, three times out of three (`ty=ACCESSIBILITY_OVERLAY` confirmed)
+- Spotlight — bounces four times out of four (`ty=ACCESSIBILITY_OVERLAY` confirmed)
 - Chat list, scrolled repeatedly — no overlay, stays put
 - Community with friends visible — no overlay, despite `df_large_story` being present
+- Opening a wallet no longer disables screen access
+
+`spotlight_container` also hosts the full-screen viewer for Discover stories — found by
+opening one and looking — so a single anchor covers both ways into the recommendations.
+
+Leaving a blocked screen presses Back, twice at most, and **never Home**. The first
+version fell back to Home, which threw the user out of Snapchat entirely: the exact thing
+the feature exists to avoid, and a worse outcome than the feed it was preventing.
 
 Blocking uses `GLOBAL_ACTION_BACK`, not `GLOBAL_ACTION_HOME`. You opened Snapchat to
 message someone; throwing you out of the whole app to stop you seeing a feed punishes the

@@ -13,8 +13,8 @@ android {
         applicationId = "io.github.sebastianyousef.heed"
         minSdk = 26          // NotificationListenerService removal-reasons + channels
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.9.0"
+        versionCode = 17
+        versionName = "0.9.2"
     }
 
     buildTypes {

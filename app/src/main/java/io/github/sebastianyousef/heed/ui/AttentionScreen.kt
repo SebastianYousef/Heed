@@ -166,7 +166,7 @@ fun AttentionScreen(
             if (rows.isNotEmpty()) {
                 item {
                     Text(
-                        if (range.isWeek) "The week, app by app" else "App by app",
+                        rangeHeading(range, days),
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                     )
@@ -182,10 +182,14 @@ fun AttentionScreen(
             } else {
                 item {
                     Text(
-                        if (usageGranted) {
-                            "Nothing recorded yet. Give it a few hours of normal use."
-                        } else {
-                            "Grant usage access above and this fills in."
+                        when {
+                            !usageGranted -> "Grant usage access above and this fills in."
+                            // Naming the day matters: an empty list under a bar you just
+                            // tapped otherwise reads as the screen being broken rather
+                            // than as "you did not use your phone then".
+                            !range.isWeek -> "No apps recorded on " +
+                                rangeHeading(range, days).removePrefix("Apps used ") + "."
+                            else -> "Nothing recorded yet. Give it a few hours of normal use."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -521,11 +525,16 @@ private fun ScreenAccessCard(
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Step aside for banking", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "Banking and ID apps refuse to start while any accessibility " +
-                            "service is on. Heed switches its own off the moment one " +
-                            "opens, and tells you. Limits and grey screen keep working.",
+                        "Turn off automatically for banking",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Off by default, and deliberately. Android will not let Heed " +
+                            "switch its own screen access back on, so doing this " +
+                            "automatically is a one-way door — one wrong guess and " +
+                            "blocking stops working until you notice. Left off, Heed " +
+                            "still spots a banking app and offers you the switch.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -570,6 +579,18 @@ private fun SetupCard(title: String, body: String, action: String, onClick: () -
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onClick) { Text(action) }
         }
+    }
+}
+
+/** Names the selected period, so the list below is never ambiguous about what it shows. */
+private fun rangeHeading(range: UsageRange, days: List<DayTotal>): String {
+    if (range.isWeek) return "Apps used this week"
+    return when (range.dayIndex) {
+        6 -> "Apps used today"
+        5 -> "Apps used yesterday"
+        else -> days.getOrNull(range.dayIndex ?: 6)?.let {
+            "Apps used on " + SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(it.startOfDay))
+        } ?: "Apps used"
     }
 }
 

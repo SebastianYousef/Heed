@@ -43,12 +43,12 @@ class AnchorTest {
     private fun fires(anchor: KnownSurfaces.Anchor, screen: Set<String>): Boolean =
         anchor.viewId in screen && (anchor.unless?.let { it !in screen } ?: true)
 
-    private fun snapchat(label: String) =
-        KnownSurfaces.forPackage("com.snapchat.android").first { it.label == label }
+    private fun snapchat(idSuffix: String) = KnownSurfaces.forPackage("com.snapchat.android")
+        .first { it.viewId.endsWith(idSuffix) && it.match != KnownSurfaces.Match.CLICK }
 
     @Test
     fun `spotlight is recognised`() {
-        assertTrue(fires(snapchat("Spotlight"), spotlight))
+        assertTrue(fires(snapchat("spotlight_container"), spotlight))
     }
 
     @Test
@@ -60,7 +60,7 @@ class AnchorTest {
 
     @Test
     fun `friends stories veto the discover block`() {
-        val discover = snapchat("Discover")
+        val discover = snapchat("df_large_story")
         // Opening the Community tab shows friends along the top with Discover beneath.
         assertFalse("friends visible must not be blocked", fires(discover, communityTop))
         // Scroll them away and only the feed is left.

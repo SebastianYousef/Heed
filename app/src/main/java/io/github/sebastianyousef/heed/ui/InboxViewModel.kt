@@ -198,6 +198,30 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * One app's week, as its own series.
+     *
+     * A per-app chart is the thing that makes a limit feel worth setting: "Snapchat, two
+     * hours yesterday" lands in a way that a share of a total never does. Queried per app
+     * rather than sliced out of a whole-phone list so the screen holds one app's data and
+     * not everything.
+     */
+    fun appDays(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
+        val origin = startOfDaysAgo(6)
+        return repo.dao.observeDayTotalsForApp(pkg, origin).map { rows ->
+            val byIndex = rows.associate { it.dayIndex to it.totalMs }
+            (0..6).map { DayTotal(origin + it * 86_400_000L, byIndex[it] ?: 0L) }
+        }.flowOn(Dispatchers.Default)
+    }
+
+    fun appOpens(pkg: String): kotlinx.coroutines.flow.Flow<List<DayTotal>> {
+        val origin = startOfDaysAgo(6)
+        return repo.dao.observeOpensForApp(pkg, origin).map { rows ->
+            val byIndex = rows.associate { it.dayIndex to it.totalMs }
+            (0..6).map { DayTotal(origin + it * 86_400_000L, byIndex[it] ?: 0L) }
+        }.flowOn(Dispatchers.Default)
+    }
+
     fun setGrayscale(pkg: String, label: String, on: Boolean) = viewModelScope.launch {
         val existing = repo.dao.focusRuleFor(pkg)
             ?: io.github.sebastianyousef.heed.focus.FocusRule(pkg, label)

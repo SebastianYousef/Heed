@@ -62,10 +62,16 @@ data class Settings(
     /**
      * Switch screen access off automatically when a banking app opens.
      *
-     * On by default. The alternative is that someone discovers at a checkout that their
-     * bank will not start, with no idea Heed is the reason.
+     * **Off** by default, and that default is the whole lesson of this setting. Android
+     * does not let an app re-enable its own accessibility service, so an automatic pause
+     * is a one-way door: one false positive and every block stops working permanently,
+     * with nothing on screen to say why. That is exactly what happened — a crypto wallet
+     * matched a "wallet" keyword and quietly disabled the feature for good.
+     *
+     * With this off, Heed still notices a banking app and still offers to step aside; it
+     * just waits to be told. A reversible prompt beats an irreversible guess.
      */
-    val pauseForBanking: Boolean = true,
+    val pauseForBanking: Boolean = false,
 
     /** Blocks every app that has a rule, between these hours. */
     val bedtimeEnabled: Boolean = false,

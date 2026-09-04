@@ -14,11 +14,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_MARK_NOISE = "io.github.sebastianyousef.heed.MARK_NOISE"
+
+        /** The "turn it off" button on the banking-app offer. */
+        const val ACTION_PAUSE_SCREEN_ACCESS = "io.github.sebastianyousef.heed.PAUSE_SCREEN_ACCESS"
         const val EXTRA_RECORD_ID = "record_id"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_PAUSE_SCREEN_ACCESS) {
+            io.github.sebastianyousef.heed.focus.ScrollWatcherService.pause()
+            Notifier(context.applicationContext).cancelScreenAccessNotice()
+            return
+        }
         if (intent.action != ACTION_MARK_NOISE) return
         val recordId = intent.getLongExtra(EXTRA_RECORD_ID, -1L)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)

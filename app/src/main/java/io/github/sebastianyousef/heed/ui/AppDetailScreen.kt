@@ -48,6 +48,15 @@ import io.github.sebastianyousef.heed.focus.Grayscale
 import io.github.sebastianyousef.heed.focus.KnownSurfaces
 import io.github.sebastianyousef.heed.focus.LearnedSurface
 import io.github.sebastianyousef.heed.focus.ScrollWatcherService
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -98,30 +107,14 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Card(
-                Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-            ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AppIcon(packageName, label, size = 52)
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(
-                            formatDuration(stat?.todayMs ?: 0L),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            "today · ${formatDuration(weekMs)} this week · " +
-                                "${stat?.launchesToday ?: 0} opens today",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                }
-            }
+            AppUsageCard(
+                vm = vm,
+                packageName = packageName,
+                label = label,
+                todayMs = stat?.todayMs ?: 0L,
+                weekMs = weekMs,
+                opensToday = stat?.launchesToday ?: 0,
+            )
 
             // The number only Heed can produce, because only Heed holds both halves.
             stat?.let {
@@ -355,6 +348,124 @@ private fun DetectionPicker(
                 )
                 TextButton(onClick = { vm.deleteSurface(surface.id) }) { Text("Forget") }
             }
+        }
+    }
+}
+
+/**
+ * What this one app actually costs, before any of the controls for changing it.
+ *
+ * Put at the top and given the most room deliberately. A limit is a decision, and nobody
+ * makes it from a list position — they make it from "Snapchat, two hours yesterday, and
+ * forty opens". The chart is the argument; the sliders below are only how you act on it.
+ */
+@Composable
+private fun AppUsageCard(
+    vm: InboxViewModel,
+    packageName: String,
+    label: String,
+    todayMs: Long,
+    weekMs: Long,
+    opensToday: Int,
+) {
+    val days by vm.appDays(packageName).collectAsState(initial = emptyList())
+    val opens by vm.appOpens(packageName).collectAsState(initial = emptyList())
+    var showOpens by remember { mutableStateOf(false) }
+
+    val series = if (showOpens) opens else days
+    val peak = (series.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
+    val initials = remember { SimpleDateFormat("EEEEE", Locale.getDefault()) }
+    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+    val dailyAverage = days.map { it.totalMs }.average().let { if (it.isNaN()) 0.0 else it }
+
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppIcon(packageName, label, size = 46)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        formatDuration(todayMs),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onContainer,
+                    )
+                    Text(
+                        "today · $opensToday opens",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = onContainer.copy(alpha = 0.75f),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(
+                    selected = !showOpens,
+                    onClick = { showOpens = false },
+                    label = { Text("Time") },
+                )
+                FilterChip(
+                    selected = showOpens,
+                    onClick = { showOpens = true },
+                    label = { Text("Opens") },
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth().height(84.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                series.forEach { day ->
+                    val fraction by animateFloatAsState(
+                        targetValue = (day.totalMs.toFloat() / peak).coerceIn(0.03f, 1f),
+                        label = "appbar",
+                    )
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth().weight(1f),
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.75f)
+                                    .fillMaxHeight(fraction)
+                                    .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp))
+                                    .background(onContainer.copy(alpha = 0.85f))
+                            )
+                        }
+                        Text(
+                            initials.format(Date(day.startOfDay)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = onContainer.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 5.dp),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                if (showOpens) {
+                    "${opens.sumOf { it.totalMs }} opens this week"
+                } else {
+                    "${formatDuration(weekMs)} this week · " +
+                        "${formatDuration(dailyAverage.toLong())} a day on average"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = onContainer.copy(alpha = 0.8f),
+            )
         }
     }
 }
