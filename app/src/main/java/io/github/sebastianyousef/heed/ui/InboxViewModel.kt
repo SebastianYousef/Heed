@@ -409,6 +409,18 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             .map { list -> list.groupBy { it.packageName } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /**
+     * Rules that are currently doing nothing because screen access is off.
+     *
+     * Empty when nothing depends on it, so the banner that consumes this stays silent for
+     * anyone who never turned screen access on in the first place — a warning that fires
+     * for people who made no such choice is one they learn to scroll past.
+     */
+    val rulesNeedingScreenAccess: StateFlow<List<io.github.sebastianyousef.heed.focus.FocusRule>> =
+        repo.dao.observeFocusRules()
+            .map { rules -> rules.filter { it.needsScreenAccess } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _strict = MutableStateFlow(false)
     val strict: StateFlow<Boolean> = _strict
 

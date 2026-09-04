@@ -88,7 +88,23 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
     val protected = CriticalApps.isProtected(packageName)
 
     var greyAvailable by remember { mutableStateOf(Grayscale.isAvailable(context)) }
-    val watcherEnabled = remember { ScrollWatcherService.isEnabled(context) }
+
+    // Re-read on resume, not once. Both of these are system settings the user can change
+    // from outside the app — and in the case of screen access, from a notification Heed
+    // posts itself — so a value captured when the screen was composed is a value that
+    // tells you the opposite of the truth as soon as you come back from changing it.
+    var watcherEnabled by remember { mutableStateOf(ScrollWatcherService.isEnabled(context)) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                watcherEnabled = ScrollWatcherService.isEnabled(context)
+                greyAvailable = Grayscale.isAvailable(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {

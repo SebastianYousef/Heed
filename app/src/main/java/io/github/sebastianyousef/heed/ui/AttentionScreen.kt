@@ -90,15 +90,18 @@ fun AttentionScreen(
     val openDays by vm.usageOpenDays.collectAsState()
     val rows by vm.rangeApps.collectAsState()
     val categories by vm.dayCategories.collectAsState()
+    val strandedRules by vm.rulesNeedingScreenAccess.collectAsState()
     val range by vm.range.collectAsState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var usageGranted by remember { mutableStateOf(UsageTracker.hasPermission(context)) }
+    var watcherEnabled by remember { mutableStateOf(ScrollWatcherService.isEnabled(context)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 usageGranted = UsageTracker.hasPermission(context)
+                watcherEnabled = ScrollWatcherService.isEnabled(context)
                 if (usageGranted) vm.refreshUsage()
                 vm.refreshStrict()
             }
@@ -126,6 +129,10 @@ fun AttentionScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (!watcherEnabled && strandedRules.isNotEmpty()) {
+                item { ScreenAccessLostBanner(strandedRules, context) }
+            }
+
             item {
                 UsageChartCard(
                     timeDays = days,
@@ -256,6 +263,68 @@ private fun ruleSummary(rule: FocusRule?): String? {
         if (rule.category != AppCategory.NEUTRAL) add(categoryLabel(rule.category).lowercase())
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+/**
+ * The other failure this app must never hide.
+ *
+ * The inbox already refuses to hide a dead notification listener, on the grounds that an
+ * empty inbox and a broken one look identical. Screen access has exactly the same
+ * property and had no such warning: switch it off — and Heed's own step-aside offers you
+ * a button that does precisely that when you open your bank — and every scroll rule goes
+ * quiet while continuing to display as set. The app then looks like it is working and is
+ * doing nothing, which is the worst way for it to fail.
+ *
+ * Android will not let an app re-enable its own accessibility service, by design, so this
+ * cannot offer a fix in one tap. What it can do is name what has stopped, list the rules
+ * it has stopped, and put the system screen one tap away.
+ *
+ * Shown only when something actually depends on it. A warning that fires for people who
+ * never turned screen access on is one everybody learns to scroll past.
+ */
+@Composable
+private fun ScreenAccessLostBanner(
+    stranded: List<FocusRule>,
+    context: android.content.Context,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                "Screen access is off",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Nothing about scrolling is running: not blocking a feed, not the " +
+                    "scrolling budget, not breaking the feed. " +
+                    stranded.take(3).joinToString { it.appLabel } +
+                    (if (stranded.size > 3) " and ${stranded.size - 3} more" else "") +
+                    " still show their rules and are not being enforced.\n\n" +
+                    "Time limits, opens, bedtime and the grey screen are unaffected — " +
+                    "those never needed it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Heed cannot switch this back on itself; Android does not allow it.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+            )
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }) { Text("Open accessibility settings") }
+        }
+    }
 }
 
 @Composable

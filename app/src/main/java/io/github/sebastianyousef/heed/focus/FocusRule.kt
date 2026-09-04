@@ -148,6 +148,20 @@ data class FocusRule(
     }
 
     /**
+     * Whether this rule is inert without the accessibility service.
+     *
+     * Time limits, launch counts, bedtime and grayscale all run on usage statistics and
+     * keep working with screen access off. Everything to do with scrolling does not:
+     * measuring it, budgeting it, breaking it, and telling one feed from another all need
+     * the event stream. A rule in that state is not degraded, it is doing nothing at all,
+     * and the app has an obligation to say so rather than keep showing it as set.
+     */
+    val needsScreenAccess: Boolean
+        get() = mode != FocusMode.OFF ||
+            dailyScrollSeconds > 0 ||
+            scrollBreakEvents > 0
+
+    /**
      * A rule that asks only for a grey screen, and for nothing to be taken away.
      *
      * Bedtime locks every app that has a rule, which is right for a rule that sets a
