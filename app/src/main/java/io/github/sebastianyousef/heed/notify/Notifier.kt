@@ -29,7 +29,6 @@ class Notifier(private val context: Context) {
         /** The unavoidable ongoing notification for the foreground service. Silent, minimal. */
         const val CHANNEL_STATUS = "heed_status"
         private const val DIGEST_ID = 1_000_001
-        private const val SCREEN_ACCESS_ID = 1_000_002
         private const val FOCUS_ID = 1_000_003
     }
 
@@ -69,89 +68,6 @@ class Notifier(private val context: Context) {
                 setShowBadge(false)
             }
         )
-    }
-
-    /**
-     * Say why screen access just went off.
-     *
-     * Silent, because it fires while you are opening your bank and the last thing that
-     * moment needs is a buzz. It exists so the change is never mysterious: a feature the
-     * user switched on has been switched off on their behalf, and they are told by whom
-     * and why, with the way back in one tap.
-     */
-    fun cancelScreenAccessNotice() {
-        runCatching { manager.cancel(SCREEN_ACCESS_ID) }
-    }
-
-    fun screenAccessPaused(pkg: String) {
-        post(
-            title = "Screen access turned off for your bank",
-            body = "Banking apps will not start while it is on. Scroll blocking is paused " +
-                "until you switch it back on.",
-            big = "Banking apps refuse to run while any accessibility service is enabled. " +
-                "Heed switched its own off so yours would start. Time limits, opens, " +
-                "bedtime and grayscale are unaffected — only scroll measurement and " +
-                "per-feed blocking are paused. Tap to turn it back on when you are done.",
-            action = null,
-        )
-    }
-
-    /**
-     * Offer to step aside, rather than doing it unasked.
-     *
-     * Heed cannot switch its own accessibility service back on — Android forbids it, for
-     * good reasons — so an automatic pause is a one-way door. When it fired on something
-     * that was not really a bank, every block stopped working permanently and nothing on
-     * screen explained why. The reversible version asks first: it costs one tap on the
-     * rare occasion a bank genuinely refuses to start, and it cannot quietly disable the
-     * app for weeks.
-     */
-    fun offerToStepAside(pkg: String, appLabel: String) {
-        val pause = android.app.PendingIntent.getBroadcast(
-            context,
-            9_101,
-            android.content.Intent(context, NotificationActionReceiver::class.java)
-                .setAction(NotificationActionReceiver.ACTION_PAUSE_SCREEN_ACCESS),
-            android.app.PendingIntent.FLAG_IMMUTABLE or
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        post(
-            title = "$appLabel not starting?",
-            body = "Banking apps refuse to run while screen access is on. Tap to turn it off.",
-            big = "Some banking and identity apps will not start while any accessibility " +
-                "service is enabled. If $appLabel is one of them, turning Heed's screen " +
-                "access off will let it through. Your time limits, opens, bedtime and " +
-                "grey screen keep working either way — only scroll measurement and " +
-                "per-feed blocking need it.",
-            action = NotificationCompat.Action.Builder(0, "Turn it off", pause).build(),
-        )
-    }
-
-    private fun post(
-        title: String,
-        body: String,
-        big: String,
-        action: NotificationCompat.Action?,
-    ) {
-        val open = android.app.PendingIntent.getActivity(
-            context,
-            9_100,
-            android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-            android.app.PendingIntent.FLAG_IMMUTABLE or
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val builder = NotificationCompat.Builder(context, CHANNEL_STATUS)
-            .setSmallIcon(io.github.sebastianyousef.heed.R.drawable.ic_heed)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(big))
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-        action?.let { builder.addAction(it) }
-        runCatching { manager.notify(SCREEN_ACCESS_ID, builder.build()) }
     }
 
     /**

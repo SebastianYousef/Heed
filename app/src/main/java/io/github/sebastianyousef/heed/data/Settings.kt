@@ -60,19 +60,6 @@ data class Settings(
      */
     val grayscaleAtBedtime: Boolean = false,
 
-    /**
-     * Switch screen access off automatically when a banking app opens.
-     *
-     * **Off** by default, and that default is the whole lesson of this setting. Android
-     * does not let an app re-enable its own accessibility service, so an automatic pause
-     * is a one-way door: one false positive and every block stops working permanently,
-     * with nothing on screen to say why. That is exactly what happened — a crypto wallet
-     * matched a "wallet" keyword and quietly disabled the feature for good.
-     *
-     * With this off, Heed still notices a banking app and still offers to step aside; it
-     * just waits to be told. A reversible prompt beats an irreversible guess.
-     */
-    val pauseForBanking: Boolean = false,
 
     /** Blocks every app that has a rule, between these hours. */
     val bedtimeEnabled: Boolean = false,
@@ -121,7 +108,6 @@ class SettingsStore(private val context: Context) {
         val RECORD_RETENTION = intPreferencesKey("record_retention_days")
         val SCROLL_MINUTES = intPreferencesKey("scroll_intervention_minutes")
         val GREY_BEDTIME = booleanPreferencesKey("grayscale_bedtime")
-        val PAUSE_BANKING = booleanPreferencesKey("pause_for_banking")
         val BEDTIME_ON = booleanPreferencesKey("bedtime_enabled")
         val BEDTIME_START = intPreferencesKey("bedtime_start")
         val BEDTIME_END = intPreferencesKey("bedtime_end")
@@ -148,7 +134,6 @@ class SettingsStore(private val context: Context) {
             recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
             scrollInterventionMinutes = p[Keys.SCROLL_MINUTES] ?: d.scrollInterventionMinutes,
             grayscaleAtBedtime = p[Keys.GREY_BEDTIME] ?: d.grayscaleAtBedtime,
-            pauseForBanking = p[Keys.PAUSE_BANKING] ?: d.pauseForBanking,
             bedtimeEnabled = p[Keys.BEDTIME_ON] ?: d.bedtimeEnabled,
             bedtimeStart = p[Keys.BEDTIME_START] ?: d.bedtimeStart,
             bedtimeEnd = p[Keys.BEDTIME_END] ?: d.bedtimeEnd,
@@ -185,8 +170,6 @@ class SettingsStore(private val context: Context) {
         it[Keys.BEDTIME_END] = end
     }
 
-    suspend fun setPauseForBanking(v: Boolean) =
-        context.dataStore.edit { it[Keys.PAUSE_BANKING] = v }
 
     suspend fun setGrayscaleAtBedtime(v: Boolean) =
         context.dataStore.edit { it[Keys.GREY_BEDTIME] = v }

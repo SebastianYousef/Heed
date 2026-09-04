@@ -144,15 +144,6 @@ class AttentionService : Service() {
         if (pkg == lastPackage) return
         lastPackage = pkg
 
-        // A backstop only. The scroll watcher disables itself from its own callback,
-        // which is both faster and the only path that cannot be defeated by a stale
-        // instance reference. This stays quiet unless it really did switch something off.
-        if (settings.pauseForBanking && CriticalApps.isSecuritySensitive(pkg) &&
-            ScrollWatcherService.isEnabled(this)
-        ) {
-            if (ScrollWatcherService.pause()) Notifier(this).screenAccessPaused(pkg)
-            return
-        }
 
         if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
         if (ScrollWatcherService.isEnabled(this)) return  // that service already handles it

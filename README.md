@@ -299,51 +299,31 @@ the session that followed a tap turns out to be doom scrolling, the notification
 recorded as `CLICKED_THEN_SCROLLED` and trains as a negative instead. The filtering gets
 better because the attention tracking exists.
 
-## Banking apps, and why enforcement is split in two
+## Banking apps, and a workaround for a problem that was not there
 
-Nordea, BankID, Swish and most of their peers refuse to start while *any* accessibility
-service is enabled. That is a reasonable defence — accessibility is the standard vector
-for overlay-and-tap account takeover — and it is not something to detect around or evade.
-
-The first version put every limit behind the accessibility service, which meant it was
-really asking people to choose between their bank and their screen-time rules. Nobody
-makes that choice twice; they disable the app, which is exactly what happened here.
-
-So enforcement is now two engines:
+Enforcement is split in two, and that split is worth keeping whatever banks do:
 
 | | Needs | Does |
 |---|---|---|
 | `AttentionService` | usage statistics | screen time, time limits, launch limits, bedtime, grayscale |
-| `ScrollWatcherService` | accessibility | scroll measurement, per-surface blocking |
+| `ScrollWatcherService` | accessibility | scroll measurement, per-surface blocking, the seam |
 
-Everything in the first row works with accessibility switched off, so the default install
-is compatible with every banking app on the phone.
+Everything in the first row works with accessibility switched off, which is worth having
+on its own: it means the app degrades to something useful rather than to nothing.
 
-Screen access does not have to be a standing choice, though. When a banking or identity
-app comes to the foreground, `ScrollWatcherService` calls `disableSelf()` from its own
-`onAccessibilityEvent` and posts a silent notification saying what it did and how to undo
-it. Limits, opens, bedtime and grayscale are untouched, because none of them go through
-that service.
+Built on top of that split was a whole subsystem — a list of banking packages, a
+foreground watcher, a notification offering to switch screen access off, and a setting to
+do it automatically — resting on the belief that Nordea, BankID, Swish and Revolut refuse
+to start while any accessibility service is enabled.
 
-The self-disable lives inside the accessibility service rather than in the poller for a
-reason worth recording: the poller can only reach it through a static instance reference,
-and that reference is null in exactly the case that matters — the service bound but not
-yet reconnected. The first version of this posted "screen access turned off" and turned
-nothing off. Now the only code that disables the service is the service itself, where
-`this` cannot be stale, and the poller is a backstop that stays quiet unless its call
-actually succeeded.
-
-Verified on the device: opening Revolut takes `enabled_accessibility_services` from the
-Heed component to `null`, with the notification posted.
+**The belief was wrong about the cause, and the subsystem has been deleted.**
 
 ### A private space is a separate user
 
-This turned out to be the whole explanation, and it is worth stating plainly because it
-looks like magic from the outside: *how does Mindful read the screen and still let banking
-apps run?*
+This was the whole explanation, and the section below used to present it as one factor
+among several. It is not; it is the entire thing.
 
-It does not do anything clever. **Accessibility services are enabled per Android user.**
-On the test device:
+**Accessibility services are enabled per Android user.** On the test device:
 
 | | owner profile | private space |
 |---|---|---|
@@ -351,34 +331,60 @@ On the test device:
 | Nordea, BankID, Swish, Avanza | — | ✓ |
 | Revolut | ✓ | — |
 
-Mindful's service has simply never been in the same profile as the four banks that object
-to it. Heed's was, because `adb install` without `--user 0` puts a copy in every profile,
-including the private space — so the copy living *beside* the banks was the one they were
-reacting to. Removing it fixed the conflict that a whole subsystem had been built to work
-around.
+Mindful's service has never been in the same profile as the four banks that appeared to
+object to it. Heed's was, because `adb install` without `--user 0` puts a copy in *every*
+profile, including the private space — so the copy living beside the banks was the one
+they were reacting to. Install with `--user 0` and they all start normally with screen
+access on. Verified on the device.
 
-Install with `--user 0`.
+Revolut, in the owner profile alongside both apps, never objected at all. It went into the
+package list on an assumption, and what the previous version of this file called "verified
+on the device" verified only that *Heed's own step-aside fired* — never that Revolut
+refused anything.
+
+Reading Mindful's source settles it from the other direction. Its service declares
+`canRetrieveWindowContent`, `flagRetrieveInteractiveWindows`, enhanced web accessibility
+and `feedbackAllMask` — strictly more capability than Heed asks for — with an entirely
+ordinary manifest declaration and no `isAccessibilityTool`. Searching its Android sources
+for `bank`, `wallet`, `finance` and `disableSelf` returns nothing. It has never contained
+a line of code about this. There was no technique to copy, because there was nothing being
+done.
+
+### The better reason it is gone
+
+Even if a bank had genuinely objected, the mechanism was the wrong answer.
+
+A button inside a blocking app that switches off the thing doing the blocking is not a
+concession to banks. It is a one-tap way out of every rule you have set — and it lived in
+the notification shade, needing no password, no waiting and no explanation. An app whose
+entire premise is that the version of you who set the rule should outrank the version who
+wants out of it has no business shipping that button, whatever it is labelled.
+
+Screen access can still be switched off. It is in system settings, where turning something
+off costs the deliberate walk that it should.
 
 ### Never disable something you cannot re-enable
 
-The first version of the step-aside switched screen access off automatically whenever it
-saw a banking app. The keyword list included "wallet". A crypto wallet on the test device
-matched it, the accessibility service disabled itself, and — because Android does not let
-an app re-enable its own accessibility service — every block stopped working permanently,
-with nothing on screen to explain why. It presented as "the Spotlight block is
-inconsistent", and it was: it worked until the first time a wallet was opened, then never
-again.
+The lesson that produced the narrow keyword list is still the right lesson, and it now
+applies to the whole idea rather than to its tuning.
 
-Two changes came out of that, and the second is the general lesson.
+The first version switched screen access off automatically whenever it saw a banking app.
+The keyword list included "wallet". A crypto wallet on the test device matched it, the
+accessibility service disabled itself, and — because Android does not let an app
+re-enable its own accessibility service — every block stopped working permanently, with
+nothing on screen to explain why. It presented as "the Spotlight block is inconsistent",
+and it was: it worked until the first time a wallet was opened, then never again.
 
-The list is now narrow: no generic money words, nothing short enough to collide, and the
-banks that genuinely refuse accessibility named outright.
+The response at the time was to narrow the list and to offer rather than act. That was an
+improvement to a mechanism that should not have existed, and the failure recurred in a
+gentler form months later: screen access went off, every scroll rule went quiet, the app
+carried on displaying all of them as set, and it presented as "the Snapchat filter got
+worse". The fix that mattered was not a better list. It was **deleting the one-way door,
+and adding a banner that refuses to let its absence go unmentioned** — see the disconnected
+banners, which now cover screen access as well as the notification listener.
 
-And the default is now to **offer** rather than to act. Heed notices a banking app and
-posts a silent notification with a "Turn it off" button; the automatic version is still
-there behind a switch that says what it costs. An irreversible action taken on a guess
-needs consent, not a default — the asymmetry is the point, since being asked costs one tap
-on a rare occasion, and guessing wrong costs the feature entirely and silently.
+An irreversible action taken on a guess needs consent. An irreversible action taken on a
+guess that also defeats the point of the app needs deleting.
 
 ## Grayscale
 
@@ -627,8 +633,7 @@ stated instead, and it is narrower than "reads your screen":
 - The tree is only walked for apps explicitly set to Precise. Everything else uses the
   behavioural path, which needs no content access whatsoever.
 - `AccessibilityServiceInfo.packageNames` names only apps with a rule, known scrollers and
-  the banks Heed steps aside from, so for every other app on the phone the tree is never
-  even offered.
+  known scrollers, so for every other app on the phone the tree is never even offered.
 
 Behavioural measurement remains the default and the fallback, because it needs none of
 that and works in an app nobody has heard of yet.
@@ -657,8 +662,9 @@ Four things did it, in order of how much they mattered:
 **The accessibility service was told about every app on the phone.**
 `TYPE_WINDOW_CONTENT_CHANGED` fires constantly in every app, and each one is a binder
 transaction whether or not it is wanted. `AccessibilityServiceInfo.packageNames` now names
-only apps with a rule, known scrollers, and the banking apps Heed steps aside from, so the
-system filters the rest at the source.
+only apps with a rule and known scrollers, so the system filters the rest at the source.
+(A running focus session is the one exception: it drops the filter entirely, because it
+turns apps away precisely on the grounds that no rule exists for them.)
 
 **Every scroll event hit the database.** `maybeIntervene` launched a coroutine, ran a Room
 query and read DataStore — per event, tens of times a second on a flick — almost always to
@@ -850,7 +856,7 @@ Needs JDK 17–21 (not 26 — AGP rejects it) and the Android SDK.
 ```bash
 export JAVA_HOME=/path/to/jdk-21
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # 147 tests over features, rules, classifier, pipeline, scrolling, sessions
+./gradlew testDebugUnitTest      # 138 tests over features, rules, classifier, pipeline, scrolling, sessions
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 

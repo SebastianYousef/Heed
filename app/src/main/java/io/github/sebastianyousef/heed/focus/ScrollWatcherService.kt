@@ -133,8 +133,6 @@ class ScrollWatcherService : AccessibilityService() {
             // Known scrollers even without a rule, so measurement can start the moment
             // one is installed rather than after a rule is created for it.
             addAll(KnownScrollers.packages.keys)
-            // And the apps we exist to get out of the way of.
-            addAll(CriticalApps.securityPackages)
         }
         info.packageNames = wanted.toTypedArray()
         runCatching { serviceInfo = info }
@@ -152,18 +150,6 @@ class ScrollWatcherService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // Step aside for a bank, from inside the service that is in its way.
-                //
-                // This lives here rather than in AttentionService because only the
-                // running service can reliably disable itself: a cross-process static
-                // reference is null exactly when the service has been rebound and not yet
-                // reconnected, which is the case where the notification fired and nothing
-                // actually happened. Here `this` is the instance, so there is nothing to
-                // be stale.
-                if (pkg != currentPackage && CriticalApps.isSecuritySensitive(pkg)) {
-                    stepAsideFor(pkg)
-                    return
-                }
                 ForegroundApp.publish(pkg)
                 if (pkg != currentPackage) {
                     flush(now)
@@ -521,36 +507,6 @@ class ScrollWatcherService : AccessibilityService() {
         }
     }
 
-    /**
-     * Turn screen access off because a banking or identity app just opened.
-     *
-     * Checked against the setting each time rather than cached, so switching it off in
-     * the UI takes effect on the next app launch rather than the next reboot.
-     */
-    private fun stepAsideFor(pkg: String) {
-        if (pkg == lastOfferedFor) return
-        lastOfferedFor = pkg
-        scope.launch {
-            val repo = HeedRepository.get(this@ScrollWatcherService)
-            val notifier = io.github.sebastianyousef.heed.notify.Notifier(this@ScrollWatcherService)
-            if (repo.settings.first().pauseForBanking) {
-                flush(System.currentTimeMillis())
-                notifier.screenAccessPaused(pkg)
-                runCatching { disableSelf() }
-            } else {
-                // The default. Offer the choice instead of taking it, because Heed cannot
-                // undo the taking.
-                notifier.offerToStepAside(
-                    pkg,
-                    io.github.sebastianyousef.heed.capture.NotificationMapper
-                        .appLabel(this@ScrollWatcherService, pkg),
-                )
-            }
-        }
-    }
-
-    /** Offer once per app per connection, so a bank you use daily is not a daily nag. */
-    private var lastOfferedFor: String? = null
 
     /** Persist the stretch just finished so the usage tracker can pair it with a session. */
     private fun flush(now: Long) {
@@ -665,17 +621,5 @@ class ScrollWatcherService : AccessibilityService() {
 
         @Volatile private var instance: ScrollWatcherService? = null
 
-        /**
-         * Switch the service off from inside the app.
-         *
-         * Banking apps refuse to run while any accessibility service is enabled — a fair
-         * defence against overlay-and-tap fraud, and not one to be worked around. This
-         * makes the honest answer a single tap instead of a hunt through system settings.
-         * Android offers no matching way to switch it back on, by design, so re-enabling
-         * still means a trip to Settings; the UI is explicit about that rather than
-         * pretending otherwise.
-         */
-        fun pause(): Boolean =
-            instance?.let { runCatching { it.disableSelf() }.isSuccess } ?: false
     }
 }

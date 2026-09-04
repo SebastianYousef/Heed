@@ -237,10 +237,6 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         repo.syncAttentionService()
     }
 
-    fun setPauseForBanking(on: Boolean) = viewModelScope.launch {
-        repo.settingsStore.setPauseForBanking(on)
-        repo.syncAttentionService()
-    }
 
     fun setGrayscaleAtBedtime(on: Boolean) = viewModelScope.launch {
         repo.settingsStore.setGrayscaleAtBedtime(on)
@@ -467,18 +463,6 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSurface(id: Long) = viewModelScope.launch { repo.dao.deleteSurface(id) }
 
-    /**
-     * Turns off Heed's own accessibility service.
-     *
-     * Here because banking apps refuse to run while any accessibility service is enabled,
-     * and the alternative — telling people to go and find it in system settings — is how
-     * you get uninstalled by someone who just wanted to pay for lunch. Android has no way
-     * to switch it back on from inside an app, so this is deliberately one-way, and the
-     * UI says so.
-     */
-    fun pauseScreenAccess() {
-        io.github.sebastianyousef.heed.focus.ScrollWatcherService.pause()
-    }
 
     fun setBedtime(enabled: Boolean, start: Int, end: Int) = viewModelScope.launch {
         repo.settingsStore.setBedtime(enabled, start, end)

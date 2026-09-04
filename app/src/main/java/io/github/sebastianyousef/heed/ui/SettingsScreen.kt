@@ -98,7 +98,6 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             ScreenAccessCard(
                 ScrollWatcherService.isEnabled(context),
-                settings.pauseForBanking,
                 vm,
                 context,
             )
@@ -467,17 +466,30 @@ private fun BedtimeCard(
 }
 
 /**
- * The accessibility service, and the banking-app problem it causes.
+ * The accessibility service, and the banking-app problem that turned out not to exist.
  *
- * This card is blunt about the trade-off because the alternative is worse: someone
- * discovers at a checkout that their bank will not open, has no idea Heed is why, and
- * uninstalls it. Saying so up front, with the off switch right there, costs a few lines
- * and keeps the app installed.
+ * This card used to carry a switch and a button for stepping out of banking apps' way,
+ * built on the belief that Nordea, BankID, Swish and Revolut refuse to start while any
+ * accessibility service is enabled. The belief was wrong about the cause. Accessibility
+ * services are enabled **per Android user**, and the banks that appeared to object were
+ * simply in a private space that `adb install` had put a second copy of Heed into. With
+ * one copy, in the owner profile, they all start normally with screen access on —
+ * confirmed on the device, and consistent with Mindful, which declares a strictly more
+ * capable service than Heed and has never contained a line of code about banks.
+ *
+ * So the whole mechanism is gone, and the second reason is the better one. A button
+ * inside a blocking app that switches off the thing doing the blocking is not a
+ * concession to banks, it is a one-tap way out of every rule you set — reachable from
+ * the notification shade, needing no password and no waiting. An app whose entire premise
+ * is that the version of you who set the rule should outrank the version who wants out of
+ * it has no business shipping that button.
+ *
+ * Screen access can still be turned off, in system settings, where turning something off
+ * costs the deliberate walk it should.
  */
 @Composable
 private fun ScreenAccessCard(
     enabled: Boolean,
-    pauseForBanking: Boolean,
     vm: InboxViewModel,
     context: android.content.Context,
 ) {
@@ -489,49 +501,32 @@ private fun ScreenAccessCard(
                 if (enabled) {
                     "On. Heed can measure scrolling and tell one feed from another — the " +
                         "only way to block Snapchat's Spotlight without also blocking your " +
-                        "chats."
+                        "chats.\n\nBanking apps are unaffected. They only object to an " +
+                        "accessibility service in the same Android user as themselves, so " +
+                        "one running in your owner profile does not stop a bank in your " +
+                        "private space."
                 } else {
-                    "Off. Time limits, opens, bedtime and grey screen all still work — " +
-                        "those run on usage statistics and need nothing from your screen.\n\n" +
-                        "Turning it on adds scrolling measurement and blocking a single " +
-                        "feed without touching the rest of the app."
+                    "Off. Nothing about scrolling is running — not blocking a feed, not " +
+                        "the scrolling budget, not breaking the feed.\n\nTime limits, " +
+                        "opens, bedtime and the grey screen all still work; those run on " +
+                        "usage statistics and need nothing from your screen."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Turn off automatically for banking",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        "Off by default, and deliberately. Android will not let Heed " +
-                            "switch its own screen access back on, so doing this " +
-                            "automatically is a one-way door — one wrong guess and " +
-                            "blocking stops working until you notice. Left off, Heed " +
-                            "still spots a banking app and offers you the switch.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = pauseForBanking,
-                    onCheckedChange = { vm.setPauseForBanking(it) },
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
             if (enabled) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { vm.pauseScreenAccess() }) {
-                        Text("Turn off for banking")
-                    }
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }) { Text("System settings") }
-                }
+                Text(
+                    "Heed will not offer to turn this off for you. A button that disables " +
+                        "the blocking is a way around every rule you set, and it lived one " +
+                        "tap deep in the notification shade.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }) { Text("System settings") }
             } else {
                 OutlinedButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
