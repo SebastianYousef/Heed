@@ -150,8 +150,7 @@ private fun StartCard(vm: InboxViewModel) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                "Everything closes except the apps you allow below. Authenticators, " +
-                    "calls, alarms and your home screen are never touched.",
+                "Everything closes except the apps you allow.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
             )
@@ -248,8 +247,7 @@ private fun RunningCard(state: FocusSession.State, now: Long, vm: InboxViewModel
                         ),
                     ) { Text("End early") }
                     Text(
-                        "Takes ${FocusSession.END_DELAY_SECONDS} seconds. Starting was " +
-                            "instant; stopping is not, and that gap is the whole point.",
+                        "Takes ${FocusSession.END_DELAY_SECONDS} seconds.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                         modifier = Modifier.padding(top = 6.dp),
@@ -322,6 +320,14 @@ private fun AllowlistCard(
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Explain(
+                short = "Authenticators, calls, alarms, your launcher and Heed are always allowed",
+                detail = "The first three because being locked out of a login code at the " +
+                    "wrong moment is worse than any amount of focus. The last two because " +
+                    "blocking them is a trap rather than a rule: blocking sends you to the " +
+                    "home screen, so a blocked home screen has nowhere to send you, and a " +
+                    "blocked Heed hides the only button that ends the session.",
             )
             if (locked) {
                 Text(

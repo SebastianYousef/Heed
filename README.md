@@ -733,6 +733,33 @@ the eye needs somewhere neutral to rest before a red bar means anything. Each da
 is then stacked by category, with the split named in words underneath, since a colour
 alone tells you a distinction exists and not which way round it goes.
 
+## Saying less, without saying less
+
+Heed explains itself more than most apps do, and that is deliberate: a filter you cannot
+interrogate is one you stop trusting the first time it is wrong. But *available* and
+*unavoidable* are different things, and every settings card had been written as three
+paragraphs at full volume.
+
+On screen that produces the opposite of the intent. When everything is explained equally
+loudly nothing is emphasised, the control you came for is below the fold, and the reader
+learns to skip the prose wholesale — including the two sentences that mattered. The
+per-app screen was four scrolls of reasoning wrapped around six controls.
+
+So the reasoning is still there, one tap away, and the visible line is now the state:
+"Drain the colour here / Off / Why ⌄". Nothing was deleted; the same words are behind the
+chevron. The screen went from four scrolls to one and a half.
+
+Two rules about where this is not used. **Warnings are never collapsed** — an error whose
+explanation is hidden behind a tap is one you have to opt into understanding, which is how
+a warning becomes decoration. And the **first** description of a control that can surprise
+you stays visible: what Automatic mode cannot do is on screen, because someone who does
+not read it will be thrown out of a conversation.
+
+Material You is already in use — the palette is `dynamicDarkColorScheme` from your
+wallpaper on Android 12 and up, with a fixed scheme as the fallback. The two category
+colours are deliberately *not* dynamic: productive and distracting have to mean the same
+thing on every device, and a wallpaper-derived accent cannot promise that.
+
 ## Reading the numbers
 
 Two small things that decide whether the Attention screen answers a question or just

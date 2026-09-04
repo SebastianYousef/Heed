@@ -177,18 +177,24 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
             }
 
             SettingBlock("What Heed does here") {
-                Text(
-                    if (rule.detection == DetectionMode.PRECISE) {
-                        "In Precise mode, Block only removes you from the screens named " +
-                            "below. Everything else in the app is untouched."
+                Explain(
+                    short = if (rule.detection == DetectionMode.PRECISE) {
+                        "Block removes you only from the feeds named below"
                     } else {
-                        "In Automatic mode, Block stops you after a few scrolls anywhere " +
-                            "in the app — it cannot tell a feed from a conversation."
+                        "Block stops you anywhere in the app — including chats"
                     },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    detail = if (rule.detection == DetectionMode.PRECISE) {
+                        "Precise matching knows which screen you are on, so everything " +
+                            "else in the app is untouched by construction rather than by " +
+                            "tuning."
+                    } else {
+                        "Automatic sees only that something scrolled. A feed and a chat " +
+                            "list produce identical events, so a scroll-count block cannot " +
+                            "tell them apart — which is how it threw people out of " +
+                            "conversations mid-sentence."
+                    },
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FocusMode.entries.forEach { mode ->
                         FilterChip(
@@ -209,34 +215,30 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
             }
 
             SettingBlock("How this app counts") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Leave out of the statistics", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "For the apps that are foreground time without being your " +
-                                "time — a launcher you pass through, the intent picker, a " +
-                                "system dialog. Counting those does not make the total more " +
-                                "accurate, it makes it less.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                SettingRow(
+                    title = "Leave out of the statistics",
+                    subtitle = if (rule.excludedFromStats) "Not counted anywhere" else "Counted",
+                    detail = "For the apps that are foreground time without being your " +
+                        "time — a launcher you pass through, the intent picker, a system " +
+                        "dialog. Counting those does not make the total more accurate, it " +
+                        "makes it less.",
+                ) {
                     Switch(
                         checked = rule.excludedFromStats,
                         onCheckedChange = { vm.setExcludedFromStats(packageName, label, it) },
                     )
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
                 Text("What kind of time is this?", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Your call, not Heed's. The same app is a lecture hall for one person " +
-                        "and a slot machine for the next, so nothing is classified for you " +
-                        "— only what you name gets a colour in the charts.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Explain(
+                    short = "Colours the charts · your call, not Heed's",
+                    detail = "The same app is a lecture hall for one person and a slot " +
+                        "machine for the next, so nothing is classified for you. Only what " +
+                        "you name gets a colour; unsorted stays neutral, because a chart " +
+                        "that shades everything says nothing.",
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AppCategory.entries.forEach { category ->
                         FilterChip(
@@ -251,21 +253,19 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                 }
             }
 
-            SettingBlock("Grey screen in this app") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (greyAvailable) {
-                            "Colour drains away while this app is in front, and comes back " +
-                                "when you leave. Nothing is blocked. For a feed built on " +
-                                "thumbnails this does more than a time limit and starts no " +
-                                "argument."
-                        } else {
-                            "Needs a one-time setup over USB — see Settings."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
+            SettingBlock("Grey screen") {
+                SettingRow(
+                    title = "Drain the colour here",
+                    subtitle = when {
+                        !greyAvailable -> "Needs a one-time setup over USB — see Settings"
+                        rule.grayscale -> "On while this app is in front"
+                        else -> "Off"
+                    },
+                    detail = "Colour is the cheapest thing an app buys attention with, and " +
+                        "a feed built on thumbnails stops working in monochrome. Unlike a " +
+                        "block there is nothing to argue with: the phone still works, it is " +
+                        "simply boring. Colour comes back when you leave.",
+                ) {
                     Switch(
                         checked = rule.grayscale && greyAvailable,
                         enabled = greyAvailable,
@@ -291,20 +291,20 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                     max = 50f,
                 ) { vm.setFocusRule(rule.copy(dailyLaunchLimit = it)) }
 
-                Text(
-                    "Opens are often the better lever. Twenty two-minute checks cost less " +
-                        "clock than one forty-minute sitting and do far more damage.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Explain(
+                    short = "Opens are often the better lever",
+                    detail = "Twenty two-minute checks cost less clock than one " +
+                        "forty-minute sitting and do far more damage to your attention. A " +
+                        "limit on opens catches the reflex; a limit on time only catches " +
+                        "the sitting.",
                 )
             }
 
             SettingBlock("Scrolling") {
                 if (!watcherEnabled) {
                     Text(
-                        "Screen access is off, so Heed cannot measure scrolling in this app. " +
-                            "Everything above still works. Turning it on will stop banking " +
-                            "apps from starting.",
+                        "Screen access is off, so nothing here can run. Everything above " +
+                            "still works.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -353,18 +353,17 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
 @Composable
 private fun ScrollBreak(rule: FocusRule, vm: InboxViewModel) {
     Text("Break the feed", style = MaterialTheme.typography.bodyMedium)
-    Text(
-        if (rule.scrollBreakEvents > 0) {
-            "Every ${rule.scrollBreakEvents} scrolls the feed is covered for " +
-                "${rule.breakSeconds} seconds. Nothing is taken away and nothing closes — " +
-                "you tap once and carry on. It happens again after the next " +
-                "${rule.scrollBreakEvents}."
+    Explain(
+        short = if (rule.scrollBreakEvents > 0) {
+            "Every ${rule.scrollBreakEvents} scrolls, paused for ${rule.breakSeconds}s"
         } else {
-            "Off. A feed has no last post, so carrying on is never a decision. This puts a " +
-                "pause in the way often enough that it becomes one."
+            "Off"
         },
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        detail = "A feed has no last post, so carrying on is never a decision — only a " +
+            "moment at which you have not stopped. This manufactures the moment: the feed " +
+            "is covered, a timer runs, and one deliberate tap hands it straight back. " +
+            "Nothing is taken away and nothing closes, which is what lets it repeat where " +
+            "a limit fires once and a nudge gives up for the visit.",
     )
     LimitSlider(
         label = if (rule.scrollBreakEvents > 0) {
@@ -383,12 +382,9 @@ private fun ScrollBreak(rule: FocusRule, vm: InboxViewModel) {
 
         Text(
             if (rule.detection == DetectionMode.PRECISE) {
-                "In Precise mode this only counts scrolls on the feeds Heed knows, so your " +
-                    "chats and your friends' stories will never trigger it."
+                "Only counts scrolls on the feeds Heed knows — chats cannot trigger it."
             } else {
-                "In Automatic mode Heed cannot tell a feed from a chat, so this counts " +
-                    "every scroll in the app — including a long conversation. Switch to " +
-                    "Precise above to confine it to the feed."
+                "Automatic counts every scroll in the app, including conversations."
             },
             style = MaterialTheme.typography.labelSmall,
             color = if (rule.detection == DetectionMode.PRECISE) {
@@ -426,34 +422,34 @@ private fun DetectionPicker(
             )
         }
     }
-    Text(
-        if (rule.detection == DetectionMode.BEHAVIOURAL) {
-            "Automatic watches how fast and how long you scroll and never looks at your " +
-                "screen. It cannot tell a feed from a chat list, so blocking on it will " +
+    Explain(
+        short = if (rule.detection == DetectionMode.BEHAVIOURAL) {
+            "Never looks at your screen · cannot tell a feed from a chat"
+        } else {
+            "Knows which screen you are on · reads structure, never text"
+        },
+        detail = if (rule.detection == DetectionMode.BEHAVIOURAL) {
+            "Automatic watches how fast and how long you scroll and nothing else, so it " +
+                "works in an app nobody has heard of yet. The cost is that a feed and a " +
+                "chat list are the same events at the same rate, so blocking on it will " +
                 "throw you out of conversations too."
         } else {
             "Precise matches the screen against ones it knows, so it can stop Spotlight " +
                 "and Discover and leave your friends' stories and your chats completely " +
                 "alone. It reads the layout's structure — view ids and class names — and " +
-                "never the text on it."
+                "never the text on it. Grep focus/ for `.text`: there are no reads."
         },
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
     if (rule.detection == DetectionMode.PRECISE) {
         val exceptions = KnownSurfaces.exceptionsFor(rule.packageName)
         exceptions.forEach { exception ->
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(exception.label, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        exception.detail,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            SettingRow(
+                title = exception.label,
+                subtitle = if (rule.isExceptionEnabled(exception.key)) "Carved out" else "Blocked too",
+                detail = exception.detail,
+            ) {
                 Switch(
                     checked = rule.isExceptionEnabled(exception.key),
                     onCheckedChange = { vm.setException(rule, exception.key, it) },
@@ -464,9 +460,8 @@ private fun DetectionPicker(
         if (known.isEmpty() && surfaces.isEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "Heed does not know any screens in this app yet, so Precise mode will not " +
-                    "stop anything until you teach it one. Automatic works with no setup " +
-                    "at all — it just cannot tell a feed from a chat.",
+                "No screens known here yet — Precise will not stop anything until you " +
+                    "teach it one.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -474,8 +469,7 @@ private fun DetectionPicker(
         if (known.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "Heed already knows: " + known.joinToString { it.label } +
-                    ". Nothing else in this app is touched.",
+                "Knows: " + known.joinToString { it.label },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -483,12 +477,12 @@ private fun DetectionPicker(
 
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = { vm.armSurfaceCapture() }) { Text("Teach it another screen") }
-        Text(
-            "Tap this, then open the screen you mean and wait a second. Heed records the " +
-                "shape of the next screen it sees. Teach it a screen you want left alone " +
-                "and mark it Allowed — that beats any block.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Explain(
+            short = "How teaching works",
+            detail = "Tap the button, then open the screen you mean and wait a second. " +
+                "Heed records the shape of the next screen it sees — view ids and class " +
+                "names only, never a word that is on it. Teach it a screen you want left " +
+                "alone and mark it Allowed; an explicit allow beats any block.",
         )
 
         surfaces.forEach { surface ->

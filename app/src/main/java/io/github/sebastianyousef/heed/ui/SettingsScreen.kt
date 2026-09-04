@@ -411,12 +411,7 @@ private fun BedtimeCard(
                 Column(Modifier.weight(1f)) {
                     Text("Bedtime", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        if (enabled) {
-                            "Apps with a rule are closed between $start:00 and $end:00. " +
-                                "Calls, alarms and authenticators are untouched."
-                        } else {
-                            "Off."
-                        },
+                        if (enabled) "$start:00 to $end:00" else "Off",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -424,21 +419,28 @@ private fun BedtimeCard(
                 Switch(checked = enabled, onCheckedChange = { onChange(it, start, end) })
             }
 
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Grey screen at night", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        if (greyAvailable) {
-                            "Drains the colour out of the whole screen during those hours. " +
-                                "Nothing is blocked — the phone just stops being interesting."
-                        } else {
-                            "Needs a one-time setup over USB. Open Settings to see the command."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            if (enabled) {
+                Explain(
+                    short = "Apps with a rule are closed · calls and alarms are not",
+                    detail = "Bedtime covers every app that has a rule at all, so it needs " +
+                        "no separate list. A rule that only asks for a grey screen is left " +
+                        "alone — turning an app grey is not a request to be shut out of it " +
+                        "at eleven at night.",
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            SettingRow(
+                title = "Grey screen at night",
+                subtitle = if (greyAvailable) {
+                    if (grey) "On during those hours" else "Off"
+                } else {
+                    "Needs a one-time setup over USB"
+                },
+                detail = "Drains the colour out of the whole screen. Nothing is blocked — " +
+                    "the phone simply stops being interesting, which for most people works " +
+                    "better than a wall and starts no argument.",
+            ) {
                 Switch(
                     checked = grey && greyAvailable,
                     enabled = greyAvailable,
@@ -498,32 +500,34 @@ private fun ScreenAccessCard(
             Text("Screen access", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (enabled) {
-                    "On. Heed can measure scrolling and tell one feed from another — the " +
-                        "only way to block Snapchat's Spotlight without also blocking your " +
-                        "chats.\n\nBanking apps are unaffected. They only object to an " +
-                        "accessibility service in the same Android user as themselves, so " +
-                        "one running in your owner profile does not stop a bank in your " +
-                        "private space."
-                } else {
-                    "Off. Nothing about scrolling is running — not blocking a feed, not " +
-                        "the scrolling budget, not breaking the feed.\n\nTime limits, " +
-                        "opens, bedtime and the grey screen all still work; those run on " +
-                        "usage statistics and need nothing from your screen."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (enabled) "On — scrolling is measured and feeds can be told apart"
+                else "Off — nothing about scrolling is running",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error,
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(4.dp))
+            Explain(
+                short = if (enabled) {
+                    "Your banks are unaffected · why there is no off switch here"
+                } else {
+                    "Time limits, opens, bedtime and grey screen still work"
+                },
+                detail = if (enabled) {
+                    "Banking apps only object to an accessibility service in the same " +
+                        "Android user as themselves, so one running in your owner profile " +
+                        "does not stop a bank in your private space.\n\n" +
+                        "Heed will not offer to turn this off for you. A button that " +
+                        "disables the blocking is a way around every rule you set, and it " +
+                        "used to sit one tap deep in the notification shade."
+                } else {
+                    "Those run on usage statistics and need nothing from your screen. " +
+                        "Turning this on adds scrolling measurement and the ability to " +
+                        "block one feed without touching the rest of an app."
+                },
+            )
+            Spacer(Modifier.height(8.dp))
             if (enabled) {
-                Text(
-                    "Heed will not offer to turn this off for you. A button that disables " +
-                        "the blocking is a way around every rule you set, and it lived one " +
-                        "tap deep in the notification shade.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
                 TextButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 }) { Text("System settings") }
