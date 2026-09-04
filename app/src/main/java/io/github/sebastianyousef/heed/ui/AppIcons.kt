@@ -37,7 +37,14 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object AppIcons {
 
-    private val icons = ConcurrentHashMap<String, ImageBitmap?>()
+    /**
+     * Wrapped rather than stored as a nullable bitmap because ConcurrentHashMap rejects
+     * null values outright — an app whose icon cannot be loaded would otherwise take the
+     * process down on the first frame that tried to draw it, which is exactly what it did.
+     */
+    private class Cached(val bitmap: ImageBitmap?)
+
+    private val icons = ConcurrentHashMap<String, Cached>()
     private val labels = ConcurrentHashMap<String, String>()
 
     fun label(context: Context, pkg: String, fallback: String = pkg): String =
@@ -54,12 +61,14 @@ object AppIcons {
      * normal case rather than an error.
      */
     fun icon(context: Context, pkg: String): ImageBitmap? = icons.getOrPut(pkg) {
-        runCatching {
-            context.packageManager.getApplicationIcon(pkg)
-                .toBitmap(width = ICON_PX, height = ICON_PX)
-                .asImageBitmap()
-        }.getOrNull()
-    }
+        Cached(
+            runCatching {
+                context.packageManager.getApplicationIcon(pkg)
+                    .toBitmap(width = ICON_PX, height = ICON_PX)
+                    .asImageBitmap()
+            }.getOrNull()
+        )
+    }.bitmap
 
     private const val ICON_PX = 128
 }
