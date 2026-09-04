@@ -56,6 +56,25 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+      Package visibility, so the Attention screens can show an app's icon and the name a
+      person would use instead of "com.snapchat.android". Android 11 hides other packages
+      by default, and a screen-time app that cannot name the apps it is measuring is
+      useless — the previous build fell back to raw package names for anything that had
+      never sent a notification.
+
+      Declared as a <queries> intent filter rather than QUERY_ALL_PACKAGES: it grants
+      visibility of apps with a launcher icon, which is exactly the set Heed lists, and
+      nothing else. QUERY_ALL_PACKAGES would also expose every service and provider on
+      the device, and is flagged as sensitive for good reason.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".HeedApplication"
         android:allowBackup="false"

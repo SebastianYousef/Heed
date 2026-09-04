@@ -44,4 +44,38 @@ object CriticalApps {
         val lower = packageName.lowercase()
         return keywords.any { lower.contains(it) }
     }
+
+    /**
+     * Apps that refuse to run while an accessibility service is enabled.
+     *
+     * Banks and identity apps check `getEnabledAccessibilityServiceList` at startup and
+     * bail out, because that permission is the standard route to overlay-and-tap account
+     * takeover. It is a good check and Heed does not try to defeat it — [isSecuritySensitive]
+     * exists so Heed can get *out of the way* instead, switching its own screen access off
+     * the moment one of these comes to the foreground.
+     *
+     * Deliberately broad. A false positive costs one scroll measurement; a false negative
+     * costs somebody the ability to pay for their lunch.
+     */
+    private val bankKeywords = listOf(
+        "bank", "bankid", "swish", "revolut", "paypal", "klarna", "swedbank", "nordea",
+        "seb", "handelsbanken", "avanza", "nordnet", "monzo", "revolut", "wise",
+        "coinbase", "wallet", "id06", "freja", "mobilepay", "vipps", "blik",
+    )
+
+    private val bankPackages = setOf(
+        "com.bankid.bus",
+        "se.bankgirot.swish",
+        "com.google.android.apps.walletnfcrel",
+    )
+
+    fun isSecuritySensitive(packageName: String): Boolean {
+        if (packageName in bankPackages) return true
+        val lower = packageName.lowercase()
+        // Segment-aware for the short ones: "seb" must not match "com.websearch".
+        val segments = lower.split('.', '_', '-')
+        return bankKeywords.any { key ->
+            if (key.length <= 3) segments.any { it == key } else lower.contains(key)
+        }
+    }
 }

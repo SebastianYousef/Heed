@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   canRetrieveWindowContent is required to tell one screen in an app from another — there
-  is no other way to know that you are in Snapchat's Discovery rather than its chat list,
+  is no other way to know that you are in Snapchat's Spotlight rather than its chat list,
   because both are simply "scrolling".
 
-  What Heed does with that access is deliberately narrow. When matching a screen it walks
-  the node tree collecting only `viewIdResourceName` and `className`: the structural
-  skeleton of the layout. It never reads `text` or `contentDescription` from any node, so
-  it can recognise the shape of a feed without learning a word that is on it. Grep the
-  source for `.text` in focus/ — there are no reads.
+  flagReportViewIds is the flag this file was missing, and its absence silently broke
+  every precise rule in the app. Without it Android returns null for `viewIdResourceName`
+  on every node, so a fingerprint made of view ids is a set of nulls and an anchor can
+  never match. The feature was not misconfigured or unlucky; it could not fire at all.
 
-  It only walks the tree at all for apps you have explicitly set to Precise detection.
-  Every other app uses the behavioural path, which needs no content access whatsoever.
+  What Heed does with the access is deliberately narrow. It looks up specific view ids,
+  and when learning a screen it walks the tree collecting only `viewIdResourceName` and
+  `className`: the structural skeleton of the layout. It never reads `text` or
+  `contentDescription` from any node, so it can recognise the shape of a feed without
+  learning a word that is on it. Grep focus/ for `.text` — there are no reads.
+
+  It only inspects the tree at all for apps explicitly set to Precise detection. Every
+  other app uses the behavioural path, which needs no content access whatsoever.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
-    android:notificationTimeout="100"
+    android:notificationTimeout="50"
     android:description="@string/scroll_watcher_description"
     android:summary="@string/scroll_watcher_summary" />

@@ -29,6 +29,7 @@ class Notifier(private val context: Context) {
         /** The unavoidable ongoing notification for the foreground service. Silent, minimal. */
         const val CHANNEL_STATUS = "heed_status"
         private const val DIGEST_ID = 1_000_001
+        private const val SCREEN_ACCESS_ID = 1_000_002
     }
 
     private val manager = NotificationManagerCompat.from(context)
@@ -67,6 +68,47 @@ class Notifier(private val context: Context) {
                 setShowBadge(false)
             }
         )
+    }
+
+    /**
+     * Say why screen access just went off.
+     *
+     * Silent, because it fires while you are opening your bank and the last thing that
+     * moment needs is a buzz. It exists so the change is never mysterious: a feature the
+     * user switched on has been switched off on their behalf, and they are told by whom
+     * and why, with the way back in one tap.
+     */
+    fun screenAccessPaused(pkg: String) {
+        val open = android.app.PendingIntent.getActivity(
+            context,
+            9_100,
+            android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            android.app.PendingIntent.FLAG_IMMUTABLE or
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_STATUS)
+            .setSmallIcon(io.github.sebastianyousef.heed.R.drawable.ic_heed)
+            .setContentTitle("Screen access turned off for your bank")
+            .setContentText(
+                "Banking apps will not start while it is on. Scroll blocking is paused " +
+                    "until you switch it back on."
+            )
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "Banking apps refuse to run while any accessibility service is " +
+                        "enabled. Heed switched its own off so yours would start. Time " +
+                        "limits, opens, bedtime and grayscale are unaffected — only " +
+                        "scroll measurement and per-feed blocking are paused. Tap to turn " +
+                        "it back on when you are done."
+                )
+            )
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        runCatching { manager.notify(SCREEN_ACCESS_ID, notification) }
     }
 
     /**

@@ -45,3 +45,35 @@ class AppIconCacheTest {
         assertTrue("the failing lookup must happen once", looked.size == 1)
     }
 }
+
+/**
+ * Names for apps the system will not name.
+ *
+ * A screen-time list that says `com.zhiliaoapp.musically` has not answered the question it
+ * was asked. Package visibility fixes most of this, but not apps that are uninstalled, in
+ * a private space, or otherwise across a profile boundary — so there has to be a decent
+ * last resort.
+ */
+class PrettyNameTest {
+
+    private fun pretty(pkg: String) =
+        io.github.sebastianyousef.heed.ui.AppIcons.prettify(pkg)
+
+    @Test
+    fun `platform and vendor noise is dropped`() {
+        org.junit.Assert.assertEquals("Snapchat", pretty("com.snapchat.android"))
+        org.junit.Assert.assertEquals("Musically", pretty("com.zhiliaoapp.musically"))
+        org.junit.Assert.assertEquals("Frontpage", pretty("com.reddit.frontpage"))
+    }
+
+    @Test
+    fun `camel case is split, single words are left alone`() {
+        org.junit.Assert.assertEquals("Desk Clock", pretty("com.google.android.deskClock"))
+        org.junit.Assert.assertEquals("Linkedin", pretty("com.linkedin.android"))
+    }
+
+    @Test
+    fun `a package with nothing but noise still returns something`() {
+        org.junit.Assert.assertEquals("com.android", pretty("com.android"))
+    }
+}

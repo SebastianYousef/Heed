@@ -23,6 +23,28 @@ object SurfaceCapture {
     fun arm() { armed = true }
     fun disarm() { armed = false }
 
+    /**
+     * Is a view with this id anywhere on screen?
+     *
+     * An indexed lookup rather than a walk of the tree. It is exact, it costs a fraction
+     * of a full traversal, and it survives redesigns that move an element around as long
+     * as the element keeps its id — which is far more often than a layout keeps its shape.
+     * For the screens Heed ships anchors for, this replaces fingerprinting entirely.
+     */
+    fun hasAnchor(root: AccessibilityNodeInfo?, viewId: String): Boolean {
+        root ?: return false
+        return runCatching {
+            root.findAccessibilityNodeInfosByViewId(viewId).isNotEmpty()
+        }.getOrDefault(false)
+    }
+
+    /**
+     * The event's own source node, for screens that identify themselves by the id of the
+     * thing being scrolled rather than by anything in the window as a whole.
+     */
+    fun sourceHasId(node: AccessibilityNodeInfo?, viewId: String): Boolean =
+        node?.viewIdResourceName == viewId
+
     fun fingerprint(root: AccessibilityNodeInfo?): Set<String> {
         if (root == null) return emptySet()
         val tokens = LinkedHashSet<String>()

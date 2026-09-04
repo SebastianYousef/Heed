@@ -19,6 +19,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import io.github.sebastianyousef.heed.focus.KnownScrollers
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -52,8 +53,35 @@ object AppIcons {
             runCatching {
                 val pm = context.packageManager
                 pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
-            }.getOrNull()?.takeIf { it.isNotBlank() } ?: fallback
+            }.getOrNull()?.takeIf { it.isNotBlank() && it != pkg }
+                ?: KnownScrollers.packages[pkg]
+                ?: fallback.takeIf { it.isNotBlank() && it != pkg }
+                ?: prettify(pkg)
         }
+
+    /**
+     * A readable name for an app the system will not name for us.
+     *
+     * Uninstalled apps still have history worth showing, and an app can be invisible to
+     * us for reasons that have nothing to do with Heed — a private-space install, a
+     * profile boundary. Showing "com.zhiliaoapp.musically" in a list of where the evening
+     * went is not an answer to anything, so the package name gets cleaned up rather than
+     * printed raw.
+     *
+     * Takes the last segment that carries meaning, skipping the platform and vendor
+     * noise that trails most package names.
+     */
+    fun prettify(pkg: String): String {
+        val noise = setOf("android", "app", "apps", "mobile", "client", "com", "org", "io", "net", "free")
+        val segment = pkg.split('.')
+            .filter { it.isNotBlank() }
+            .lastOrNull { it.lowercase() !in noise }
+            ?: return pkg
+        // Split runs like "deskclock" only where the app itself did, on camel case.
+        return segment
+            .replace(Regex("([a-z])([A-Z])"), "$1 $2")
+            .replaceFirstChar { it.uppercase() }
+    }
 
     /**
      * Null when the app is gone or invisible to us. Uninstalled apps still have sessions

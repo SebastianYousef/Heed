@@ -144,6 +144,11 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         repo.syncAttentionService()
     }
 
+    fun setPauseForBanking(on: Boolean) = viewModelScope.launch {
+        repo.settingsStore.setPauseForBanking(on)
+        repo.syncAttentionService()
+    }
+
     fun setGrayscaleAtBedtime(on: Boolean) = viewModelScope.launch {
         repo.settingsStore.setGrayscaleAtBedtime(on)
         repo.syncAttentionService()

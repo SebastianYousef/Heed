@@ -160,6 +160,18 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
             }
 
             SettingBlock("What Heed does here") {
+                Text(
+                    if (rule.detection == DetectionMode.PRECISE) {
+                        "In Precise mode, Block only removes you from the screens named " +
+                            "below. Everything else in the app is untouched."
+                    } else {
+                        "In Automatic mode, Block stops you after a few scrolls anywhere " +
+                            "in the app — it cannot tell a feed from a conversation."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FocusMode.entries.forEach { mode ->
                         FilterChip(

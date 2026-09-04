@@ -100,6 +100,57 @@ object FocusOverlay {
         block(Surfacer.FromService(service), headline, detail)
 
     /**
+     * Back out of one screen, without leaving the app.
+     *
+     * The right response to "you opened Spotlight" is not the home screen. You were in
+     * Snapchat to message someone; throwing you out of the whole app to stop you seeing a
+     * feed punishes the thing you actually came for, and it is why the first version of
+     * this felt like a fight. Pressing Back drops you out of the feed and leaves you
+     * exactly where you were, which is what you asked it to do.
+     *
+     * The message is a short banner rather than a full-screen wall for the same reason:
+     * a wall you have to wait out is friction applied to an action that has already been
+     * undone.
+     */
+    fun bounce(service: AccessibilityService, headline: String, detail: String) {
+        main.post {
+            val wm = service.getSystemService(WindowManager::class.java) ?: return@post
+            dismiss(wm)
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+
+            val root = LinearLayout(service).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#EE16161C"))
+                setPadding(56, 40, 56, 40)
+                gravity = Gravity.CENTER
+            }
+            root.addView(TextView(service).apply {
+                text = headline
+                textSize = 19f
+                setTextColor(Color.WHITE)
+            })
+            root.addView(TextView(service).apply {
+                text = detail
+                textSize = 13f
+                setTextColor(Color.parseColor("#B8C4DC"))
+                setPadding(0, 8, 0, 0)
+            })
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT,
+            ).apply { gravity = Gravity.TOP }
+
+            if (!runCatching { wm.addView(root, params) }.onSuccess { current = root }.isSuccess) return@post
+            main.postDelayed({ dismiss(wm) }, BANNER_VISIBLE_MS)
+        }
+    }
+
+    /**
      * A hard stop. No continue button, because the point of BLOCK mode is that you
      * already decided, calmly, that you did not want to be here — and the version of you
      * that meets this screen is not the one who should get to overrule that.
@@ -241,4 +292,7 @@ object FocusOverlay {
 
     /** Long enough to register why you were stopped, short enough not to trap you. */
     private const val BLOCK_VISIBLE_MS = 3_500L
+
+    /** Long enough to read one line. The action is already undone; this only explains it. */
+    private const val BANNER_VISIBLE_MS = 2_000L
 }

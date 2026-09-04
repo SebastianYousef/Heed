@@ -165,7 +165,7 @@ fun AttentionScreen(
                 )
             }
 
-            item { ScreenAccessCard(watcherEnabled, vm, context) }
+            item { ScreenAccessCard(watcherEnabled, settings.pauseForBanking, vm, context) }
 
             if (rows.isNotEmpty()) {
                 item {
@@ -452,6 +452,7 @@ private fun BedtimeCard(
 @Composable
 private fun ScreenAccessCard(
     enabled: Boolean,
+    pauseForBanking: Boolean,
     vm: InboxViewModel,
     context: android.content.Context,
 ) {
@@ -463,17 +464,34 @@ private fun ScreenAccessCard(
                 if (enabled) {
                     "On. Heed can measure scrolling and tell one feed from another — the " +
                         "only way to block Snapchat's Spotlight without also blocking your " +
-                        "chats.\n\nBanking apps refuse to run while any accessibility " +
-                        "service is enabled. If your bank stops opening, this is why."
+                        "chats."
                 } else {
                     "Off. Time limits, opens, bedtime and grey screen all still work — " +
                         "those run on usage statistics and need nothing from your screen.\n\n" +
-                        "Turning it on adds scrolling measurement and per-feed blocking, " +
-                        "and will stop banking apps from starting."
+                        "Turning it on adds scrolling measurement and blocking a single " +
+                        "feed without touching the rest of the app."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Step aside for banking", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Banking and ID apps refuse to start while any accessibility " +
+                            "service is on. Heed switches its own off the moment one " +
+                            "opens, and tells you. Limits and grey screen keep working.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = pauseForBanking,
+                    onCheckedChange = { vm.setPauseForBanking(it) },
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
             if (enabled) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

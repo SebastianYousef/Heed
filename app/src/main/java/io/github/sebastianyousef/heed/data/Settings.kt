@@ -59,6 +59,14 @@ data class Settings(
      */
     val grayscaleAtBedtime: Boolean = false,
 
+    /**
+     * Switch screen access off automatically when a banking app opens.
+     *
+     * On by default. The alternative is that someone discovers at a checkout that their
+     * bank will not start, with no idea Heed is the reason.
+     */
+    val pauseForBanking: Boolean = true,
+
     /** Blocks every app that has a rule, between these hours. */
     val bedtimeEnabled: Boolean = false,
     val bedtimeStart: Int = 23,
@@ -88,6 +96,7 @@ class SettingsStore(private val context: Context) {
         val RECORD_RETENTION = intPreferencesKey("record_retention_days")
         val SCROLL_MINUTES = intPreferencesKey("scroll_intervention_minutes")
         val GREY_BEDTIME = booleanPreferencesKey("grayscale_bedtime")
+        val PAUSE_BANKING = booleanPreferencesKey("pause_for_banking")
         val BEDTIME_ON = booleanPreferencesKey("bedtime_enabled")
         val BEDTIME_START = intPreferencesKey("bedtime_start")
         val BEDTIME_END = intPreferencesKey("bedtime_end")
@@ -108,6 +117,7 @@ class SettingsStore(private val context: Context) {
             recordRetentionDays = p[Keys.RECORD_RETENTION] ?: d.recordRetentionDays,
             scrollInterventionMinutes = p[Keys.SCROLL_MINUTES] ?: d.scrollInterventionMinutes,
             grayscaleAtBedtime = p[Keys.GREY_BEDTIME] ?: d.grayscaleAtBedtime,
+            pauseForBanking = p[Keys.PAUSE_BANKING] ?: d.pauseForBanking,
             bedtimeEnabled = p[Keys.BEDTIME_ON] ?: d.bedtimeEnabled,
             bedtimeStart = p[Keys.BEDTIME_START] ?: d.bedtimeStart,
             bedtimeEnd = p[Keys.BEDTIME_END] ?: d.bedtimeEnd,
@@ -137,6 +147,9 @@ class SettingsStore(private val context: Context) {
         it[Keys.BEDTIME_START] = start
         it[Keys.BEDTIME_END] = end
     }
+
+    suspend fun setPauseForBanking(v: Boolean) =
+        context.dataStore.edit { it[Keys.PAUSE_BANKING] = v }
 
     suspend fun setGrayscaleAtBedtime(v: Boolean) =
         context.dataStore.edit { it[Keys.GREY_BEDTIME] = v }

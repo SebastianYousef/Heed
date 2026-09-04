@@ -86,6 +86,26 @@ class AttentionService : Service() {
         if (pkg == lastPackage) return
         lastPackage = pkg
 
+        // Get out of the bank's way before it has finished starting.
+        //
+        // Banking and identity apps refuse to run while any accessibility service is
+        // enabled. Heed cannot argue with that and should not try, so when one opens it
+        // switches its own screen access off instead — which is the thing the user would
+        // have done manually, three taps deep in system settings, while standing at a
+        // till. This poll runs on usage statistics, so it still sees the launch after the
+        // accessibility service is gone.
+        // A backstop only. The scroll watcher disables itself from its own callback,
+        // which is both faster and the only path that cannot be defeated by a stale
+        // instance reference. This catches the case where it was bound but never
+        // delivered the window change — and it stays quiet unless it really did switch
+        // something off, so the user is never told about a pause that did not happen.
+        if (settings.pauseForBanking && CriticalApps.isSecuritySensitive(pkg) &&
+            ScrollWatcherService.isEnabled(this)
+        ) {
+            if (ScrollWatcherService.pause()) Notifier(this).screenAccessPaused(pkg)
+            return
+        }
+
         val now = System.currentTimeMillis()
         if (now - lastBlockAt < BLOCK_COOLDOWN_MS) return
         if (ScrollWatcherService.isEnabled(this)) return  // that service already handles it

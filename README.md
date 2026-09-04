@@ -260,11 +260,33 @@ So enforcement is now two engines:
 | `ScrollWatcherService` | accessibility | scroll measurement, per-surface blocking |
 
 Everything in the first row works with accessibility switched off, so the default install
-is compatible with every banking app on the phone. Turning screen access on adds scroll
-measurement and the ability to tell one feed from another, and the app says plainly that
-it will break banking apps before you do it — with a one-tap "turn off for banking" that
-calls `disableSelf()`, because hunting through system settings at a checkout is not a
-thing anyone should have to do.
+is compatible with every banking app on the phone.
+
+Screen access does not have to be a standing choice, though. When a banking or identity
+app comes to the foreground, `ScrollWatcherService` calls `disableSelf()` from its own
+`onAccessibilityEvent` and posts a silent notification saying what it did and how to undo
+it. Limits, opens, bedtime and grayscale are untouched, because none of them go through
+that service.
+
+The self-disable lives inside the accessibility service rather than in the poller for a
+reason worth recording: the poller can only reach it through a static instance reference,
+and that reference is null in exactly the case that matters — the service bound but not
+yet reconnected. The first version of this posted "screen access turned off" and turned
+nothing off. Now the only code that disables the service is the service itself, where
+`this` cannot be stale, and the poller is a backstop that stays quiet unless its call
+actually succeeded.
+
+Verified on the device: opening Revolut takes `enabled_accessibility_services` from the
+Heed component to `null`, with the notification posted.
+
+### A private space is a separate user
+
+Worth knowing if a bank still misbehaves. Accessibility services are enabled per Android
+user, so a service enabled in the owner profile has no bearing on an app installed in a
+private space — and vice versa. On the test device, four of the five banking apps live in
+the private space, which means the owner-profile service was never what they were
+reacting to. What *did* affect them was a second copy of Heed that `adb install` had put
+into the private space; installing with `--user 0` avoids it.
 
 ## Grayscale
 
@@ -290,6 +312,55 @@ Heed also only ever undoes grayscale it turned on itself, so someone who keeps t
 permanently grey does not find it back in colour because they opened LinkedIn.
 
 ### Telling one screen from another
+
+The identifiers below were read off a running device with `uiautomator`, not copied from
+another project's list. That distinction turned out to matter: the previously shipped
+`spotlight_card_static_thumbnail`, taken from Mindful, **does not exist in Snapchat
+14.20.0.50 at all**, so the Spotlight block it was supposed to drive could never have
+fired. What Snapchat renders now:
+
+| Screen | Identifier | Note |
+|---|---|---|
+| Spotlight | `spotlight_container` | fills the window; unambiguous |
+| Discover | `df_large_story` | guarded, see below |
+| Friends' stories | `friend_card_frame` | never blocked |
+| Chats | `ff_item` | never blocked |
+
+Discover needed more than presence. Snapchat's Community tab is a single scrolling list
+with your friends' stories along the top and the Discover feed underneath, so
+`df_large_story` is in the tree from the moment the tab opens — while you are still
+looking at your friends. So an anchor can carry an `unless`: another id whose presence
+vetoes it. Discover blocks only when `friend_card_frame` has scrolled away, which is
+exactly the line to draw.
+
+Verified end to end on the device, with Snapchat set to Block:
+
+- Spotlight — bounces, three times out of three (`ty=ACCESSIBILITY_OVERLAY` confirmed)
+- Chat list, scrolled repeatedly — no overlay, stays put
+- Community with friends visible — no overlay, despite `df_large_story` being present
+
+Blocking uses `GLOBAL_ACTION_BACK`, not `GLOBAL_ACTION_HOME`. You opened Snapchat to
+message someone; throwing you out of the whole app to stop you seeing a feed punishes the
+thing you actually came for. Back drops you out of the feed and leaves you where you were.
+
+Two properties keep this safe. Heed only ever blocks on a **positive** match, so anything
+it cannot name is allowed — a redesign that breaks every id above fails open, into doing
+nothing. And a taught "allow" surface beats a shipped anchor, so a false positive is
+fixable by the person hitting it.
+
+Also note what has no anchor at all: LinkedIn. Nothing in it names the feed the way
+Spotlight names itself, and Mindful does not detect it either. LinkedIn stays on the
+behavioural path — a scrolling budget and a nudge — which is what that path is for.
+
+### The mechanics
+
+`flagReportViewIds` is the single flag this feature turned on. Without it Android returns
+null for `viewIdResourceName` on every node, so a fingerprint built from view ids is a set
+of nulls and no anchor can ever match. It was missing from
+`accessibility_service_config.xml`, which meant precise detection had never worked at all
+— not misconfigured, not unlucky, simply incapable of firing. Anchors are now looked up
+with `findAccessibilityNodeInfosByViewId`, an indexed query, rather than by walking the
+tree; the walk remains only for screens you teach it.
 
 Behavioural detection cannot distinguish Snapchat's Spotlight from Snapchat's chat list,
 because both are simply scrolling. This is not a subtlety — it was a bug with teeth. A
@@ -456,12 +527,14 @@ Known gaps, in rough priority order:
 4. No inline reply from the inbox; `RemoteInput` actions are dropped rather than preserved.
 5. Notification text is stored unencrypted. 30 days of `bigText` is a sensitive corpus.
 6. `QUERY_ALL_PACKAGES` is only used for app labels and would need removing before Play.
-7. **Snapchat's anchors are unverified on a live account.** The view ids in
-   `KnownSurfaces` are cross-checked against public inspection of the app, but Precise
-   mode has never been watched blocking Spotlight in practice. "Teach a screen" is the
-   fallback and works regardless; the anchors are a convenience that may need a redress
-   after a Snapchat redesign.
-8. The grayscale filter is verified as *writable* (`WRITE_SECURE_SETTINGS` granted, keys
+7. **The anchors are correct for Snapchat 14.20.0.50 and will rot.** They were read off a
+   running device and verified blocking Spotlight, but ids change with redesigns. The
+   failure mode is benign — a stale anchor stops matching and nothing is blocked — and
+   "Teach a screen" is the fix that does not need a new release.
+8. **The Discover guard is only verified in one direction.** Friends' stories visible was
+   confirmed not to block. That scrolling them away *does* start blocking follows from
+   `RecyclerView` recycling the off-screen cards, but was not observed directly.
+9. The grayscale filter is verified as *writable* (`WRITE_SECURE_SETTINGS` granted, keys
    confirmed present on the device) but the visual effect cannot be checked over adb —
    `screencap` reads upstream of the display colour transform, so a grey screen and a
    colour one produce byte-identical screenshots.

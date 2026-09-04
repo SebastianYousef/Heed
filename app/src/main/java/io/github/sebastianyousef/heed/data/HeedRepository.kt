@@ -468,7 +468,11 @@ class HeedRepository(private val context: Context) {
             settings.bedtimeEnabled ||
             rules.any {
                 it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
-            }
+            } ||
+            // Also needed purely to watch for a banking app opening, since the
+            // accessibility service cannot be the thing that notices it is in the way.
+            (settings.pauseForBanking &&
+                io.github.sebastianyousef.heed.focus.ScrollWatcherService.isEnabled(context))
         io.github.sebastianyousef.heed.focus.AttentionService.syncWith(context, needed)
     }
 

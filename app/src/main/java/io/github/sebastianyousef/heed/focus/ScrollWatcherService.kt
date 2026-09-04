@@ -53,6 +53,18 @@ class ScrollWatcherService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // Step aside for a bank, from inside the service that is in its way.
+                //
+                // This lives here rather than in AttentionService because only the
+                // running service can reliably disable itself: a cross-process static
+                // reference is null exactly when the service has been rebound and not yet
+                // reconnected, which is the case where the notification fired and nothing
+                // actually happened. Here `this` is the instance, so there is nothing to
+                // be stale.
+                if (pkg != currentPackage && CriticalApps.isSecuritySensitive(pkg)) {
+                    stepAsideFor(pkg)
+                    return
+                }
                 if (pkg != currentPackage) {
                     flush(now)
                     currentPackage = pkg
@@ -60,7 +72,7 @@ class ScrollWatcherService : AccessibilityService() {
                     interventionShown = false
                     lastPreciseCheck = 0L
                     checkOnOpen(pkg)
-                    checkSurface(pkg)
+                    checkSurface(pkg, event.source)
                 }
             }
 
@@ -70,7 +82,7 @@ class ScrollWatcherService : AccessibilityService() {
                 // entirely unless this app is set to Precise.
                 if (now - lastPreciseCheck >= PRECISE_INTERVAL_MS) {
                     lastPreciseCheck = now
-                    checkSurface(pkg)
+                    checkSurface(pkg, event.source)
                 }
             }
 
@@ -84,7 +96,7 @@ class ScrollWatcherService : AccessibilityService() {
                 recordScroll(now)
                 if (now - lastPreciseCheck >= PRECISE_INTERVAL_MS) {
                     lastPreciseCheck = now
-                    checkSurface(pkg)
+                    checkSurface(pkg, event.source)
                 }
                 maybeIntervene(pkg, now)
             }
@@ -146,7 +158,7 @@ class ScrollWatcherService : AccessibilityService() {
      * else. A capture request from the UI is honoured for any app, since that is the user
      * deliberately pointing at a screen.
      */
-    private fun checkSurface(pkg: String) {
+    private fun checkSurface(pkg: String, source: android.view.accessibility.AccessibilityNodeInfo?) {
         if (SurfaceCapture.armed) {
             val tokens = SurfaceCapture.fingerprint(rootInActiveWindow)
             if (tokens.size >= 8) {
@@ -156,25 +168,54 @@ class ScrollWatcherService : AccessibilityService() {
             return
         }
         if (System.currentTimeMillis() - lastBlockAt < BLOCK_COOLDOWN_MS) return
-
         if (CriticalApps.isProtected(pkg)) return
+
+        // The shipped anchors are checked here, on the service's own thread, because they
+        // are two indexed lookups against a node tree that is only valid for the length of
+        // this callback. Handing the node to a coroutine and reading it later is how you
+        // get an empty result from a recycled node — which looks exactly like "the feed
+        // isn't open" and fails silently.
+        val anchors = KnownSurfaces.forPackage(pkg)
+        val root = if (anchors.isEmpty()) null else rootInActiveWindow
+        val hitAnchor = anchors.firstOrNull { anchor ->
+            val present = when (anchor.match) {
+                KnownSurfaces.Match.SOURCE -> SurfaceCapture.sourceHasId(source, anchor.viewId)
+                KnownSurfaces.Match.WINDOW -> SurfaceCapture.hasAnchor(root, anchor.viewId)
+            }
+            present && anchor.unless?.let { !SurfaceCapture.hasAnchor(root, it) } ?: true
+        }
+        val tokens = if (hitAnchor == null) SurfaceCapture.fingerprint(rootInActiveWindow) else emptySet()
+
         scope.launch {
             val repo = HeedRepository.get(this@ScrollWatcherService)
             val rule = repo.dao.focusRuleFor(pkg) ?: return@launch
             if (rule.detection != DetectionMode.PRECISE) return@launch
-            val surfaces = repo.dao.surfacesFor(pkg)
-            if (surfaces.isEmpty()) return@launch
+            // Only Block removes you from a screen. Nudge means friction, and bouncing
+            // someone out of a feed is not friction — it is the strongest thing this app
+            // does, so it stays behind the switch that says so.
+            if (rule.mode != FocusMode.BLOCK) return@launch
 
-            val tokens = SurfaceCapture.fingerprint(rootInActiveWindow)
-            val hit = SurfaceMatcher.match(tokens, surfaces) ?: return@launch
-            if (!hit.block) return@launch
+            val taught = repo.dao.surfacesFor(pkg)
+
+            // An explicit allow always wins. Teaching Heed "this screen is fine" has to
+            // beat a shipped anchor, or a false positive on somebody's phone is
+            // unfixable by them.
+            val allowed = taught.filter { !it.block }
+            if (allowed.isNotEmpty() && tokens.isNotEmpty() &&
+                SurfaceMatcher.match(tokens, allowed) != null
+            ) return@launch
+
+            val label = hitAnchor?.label
+                ?: taught.firstOrNull { it.block && tokens.isNotEmpty() &&
+                    SurfaceMatcher.match(tokens, listOf(it)) != null }?.label
+                ?: return@launch
 
             lastBlockAt = System.currentTimeMillis()
-            FocusOverlay.block(
+            interventionShown = true
+            FocusOverlay.bounce(
                 this@ScrollWatcherService,
-                "Not ${hit.label}",
-                "You told Heed to keep you out of this one. The rest of " +
-                    "${rule.appLabel} still works.",
+                "Not $label",
+                "The rest of ${rule.appLabel} still works.",
             )
         }
     }
@@ -188,6 +229,23 @@ class ScrollWatcherService : AccessibilityService() {
                 lastBlockAt = System.currentTimeMillis()
                 FocusOverlay.block(this@ScrollWatcherService, verdict.headline, verdict.detail)
             }
+        }
+    }
+
+    /**
+     * Turn screen access off because a banking or identity app just opened.
+     *
+     * Checked against the setting each time rather than cached, so switching it off in
+     * the UI takes effect on the next app launch rather than the next reboot.
+     */
+    private fun stepAsideFor(pkg: String) {
+        scope.launch {
+            val repo = HeedRepository.get(this@ScrollWatcherService)
+            if (!repo.settings.first().pauseForBanking) return@launch
+            flush(System.currentTimeMillis())
+            io.github.sebastianyousef.heed.notify.Notifier(this@ScrollWatcherService)
+                .screenAccessPaused(pkg)
+            runCatching { disableSelf() }
         }
     }
 
@@ -276,8 +334,7 @@ class ScrollWatcherService : AccessibilityService() {
          * still means a trip to Settings; the UI is explicit about that rather than
          * pretending otherwise.
          */
-        fun pause() {
-            instance?.let { runCatching { it.disableSelf() } }
-        }
+        fun pause(): Boolean =
+            instance?.let { runCatching { it.disableSelf() }.isSuccess } ?: false
     }
 }
