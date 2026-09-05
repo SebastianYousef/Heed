@@ -1,6 +1,8 @@
 package io.github.sebastianyousef.heed.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,13 +12,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
@@ -43,6 +49,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sebastianyousef.heed.core.Time
@@ -130,6 +138,7 @@ private fun GroupCard(group: AppGroup, vm: InboxViewModel, onClick: () -> Unit) 
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                GroupDot(group.color)
                 Text(
                     group.name,
                     style = MaterialTheme.typography.titleSmall,
@@ -257,7 +266,7 @@ private fun NewGroupCard(
  * before you have said what is sharing it, so membership comes above the sliders and
  * today's spend sits at the top where it answers the question you opened the screen with.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GroupDetailScreen(vm: InboxViewModel, groupId: Long, onBack: () -> Unit) {
     val groups by vm.groups.collectAsState()
@@ -303,6 +312,21 @@ fun GroupDetailScreen(vm: InboxViewModel, groupId: Long, onBack: () -> Unit) {
         ) {
             val spend = spendToday(group, vm)
 
+            // The same chart the whole-phone and per-app screens draw, at a third scope.
+            // A group is a habit, and a habit is a thing you want the *week* of — the
+            // day's number is what the meters below are for.
+            val days by vm.groupDays(group).collectAsState(initial = emptyList())
+            val opens by vm.groupOpens(group).collectAsState(initial = emptyList())
+            var selectedDay by remember(groupId) { mutableStateOf<Int?>(null) }
+
+            UsageChartCard(
+                timeDays = days,
+                openDays = opens,
+                selectedDay = selectedDay,
+                onSelect = { selectedDay = it },
+                leading = { GroupDot(group.color, size = 22) },
+            )
+
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Today", style = MaterialTheme.typography.titleSmall)
@@ -327,6 +351,10 @@ fun GroupDetailScreen(vm: InboxViewModel, groupId: Long, onBack: () -> Unit) {
                     }
                     GroupMeters(group, spend)
                 }
+            }
+
+            if (group.members.isNotEmpty()) {
+                MemberBreakdown(group, selectedDay, vm)
             }
 
             if (strict) {
@@ -397,6 +425,31 @@ fun GroupDetailScreen(vm: InboxViewModel, groupId: Long, onBack: () -> Unit) {
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            GroupSection("Colour") {
+                Explain(
+                    short = if (group.color == 0) {
+                        "Not coloured · its apps keep their own categories"
+                    } else {
+                        "This group's time is drawn in its own colour"
+                    },
+                    detail = "A colour turns the weekly chart into an answer about the " +
+                        "habit rather than about the apps: if the red part of Tuesday is " +
+                        "half the bar, that is the thing to change. It overrides the " +
+                        "productive/distracting colour for the apps in this group, " +
+                        "because a group is the more specific statement of the two.",
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (listOf(0) + AppGroup.COLOURS).forEach { argb ->
+                        Swatch(
+                            argb = argb,
+                            selected = group.color == argb,
+                            onClick = { vm.saveGroup(group.copy(color = argb)) },
+                        )
                     }
                 }
             }
@@ -472,6 +525,118 @@ private fun GroupGone(everLoaded: Boolean, onBack: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(padding).padding(20.dp),
         )
+    }
+}
+
+/**
+ * Which member spent it, for the period the chart has selected.
+ *
+ * The second question a shared budget raises and the one it cannot answer on its own: the
+ * limit tells you the habit ran out, and this tells you which app it ran out in. Bars are
+ * relative to the group rather than to the phone, because the comparison that matters
+ * here is between members.
+ */
+@Composable
+private fun MemberBreakdown(group: AppGroup, day: Int?, vm: InboxViewModel) {
+    val rows by vm.groupMembers(group, day).collectAsState(initial = emptyList())
+    val total = rows.sumOf { it.totalMs }
+    val tint = if (group.color != 0) Color(group.color) else MaterialTheme.colorScheme.primary
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Where it went", style = MaterialTheme.typography.titleSmall)
+            if (rows.isEmpty()) {
+                Text(
+                    "Nothing recorded for these apps in this period.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                return@Column
+            }
+            Spacer(Modifier.height(6.dp))
+            rows.forEach { row ->
+                val label = rememberAppLabel(row.packageName, row.appLabel)
+                Column(Modifier.padding(vertical = 5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppIcon(row.packageName, label, size = 24)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "${row.launches} opens",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            Time.duration(row.totalMs),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(
+                                    if (total > 0) (row.totalMs.toFloat() / total).coerceIn(0f, 1f)
+                                    else 0f
+                                )
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(tint)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A group's colour, or a hollow ring where it has none. */
+@Composable
+fun GroupDot(argb: Int, size: Int = 12, modifier: Modifier = Modifier) {
+    if (argb == 0) return
+    Box(
+        modifier
+            .padding(end = 8.dp)
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(Color(argb))
+    )
+}
+
+/** One colour to choose, including "none", which is the first and the default. */
+@Composable
+private fun Swatch(argb: Int, selected: Boolean, onClick: () -> Unit) {
+    val border = MaterialTheme.colorScheme.onSurface
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(if (argb == 0) MaterialTheme.colorScheme.surfaceVariant else Color(argb))
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) border else border.copy(alpha = 0.25f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (argb == 0) {
+            Text(
+                "none",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

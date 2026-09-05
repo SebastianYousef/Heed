@@ -44,6 +44,19 @@ data class AppGroup(
      * held to ten minutes of scrolling while every conversation in them stays open.
      */
     val dailyScrollSeconds: Int = 0,
+
+    /**
+     * The colour this group's time is drawn in, as ARGB, or 0 for none.
+     *
+     * A fixed value rather than a Material role, for the same reason the productive and
+     * distracting colours are fixed: a group's colour has to mean the same thing on every
+     * device and in both themes, and a wallpaper-derived accent cannot promise that.
+     *
+     * 0 means the group makes no claim, and its apps are coloured by their category as
+     * before — which is the right default, because a group is a budget first and a label
+     * on a chart second.
+     */
+    val color: Int = 0,
 ) {
     val members: List<String>
         get() = packages.split(',').map { it.trim() }.filter { it.isNotEmpty() }
@@ -61,5 +74,25 @@ data class AppGroup(
     companion object {
         /** Offered when creating one, because a blank name field is a decision nobody wants. */
         val SUGGESTIONS = listOf("Feeds", "Social", "Video", "News", "Games")
+
+        /**
+         * The colours a group may be given.
+         *
+         * A short list rather than a full picker, and the reason is legibility rather
+         * than laziness: these have to stay apart from each other at nine pixels square
+         * in a legend and as a thin segment of a bar, in both themes, and an arbitrary
+         * colour cannot be held to that. Red first, because the most common thing anyone
+         * wants to say about a group is that it is the bad one.
+         */
+        val COLOURS = listOf(
+            0xFFE5484D.toInt(), // red
+            0xFFF76B15.toInt(), // orange
+            0xFFFFC53D.toInt(), // amber
+            0xFF46A758.toInt(), // green
+            0xFF00A2C7.toInt(), // cyan
+            0xFF3E63DD.toInt(), // blue
+            0xFF8E4EC6.toInt(), // purple
+            0xFFE93D82.toInt(), // pink
+        )
     }
 }

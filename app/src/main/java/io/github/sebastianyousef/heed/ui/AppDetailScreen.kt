@@ -3,6 +3,8 @@ package io.github.sebastianyousef.heed.ui
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -68,7 +72,7 @@ import kotlin.math.roundToInt
  * controls that interact with each other, and inlining five of those in a scrolling list
  * meant you could never see two apps at once and never see one app's rules in full.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AppDetailScreen(
     vm: InboxViewModel,
@@ -177,7 +181,8 @@ fun AppDetailScreen(
             // mean: a group budget can close this app while every slider below still
             // shows room left, and a limit that fires for a reason the screen does not
             // mention is one you assume is broken.
-            groups.firstOrNull { packageName in it.members }?.let { group ->
+            val group = groups.firstOrNull { packageName in it.members }
+            group?.let { group ->
                 Card(
                     Modifier.fillMaxWidth().clickable { onOpenGroup(group.id) },
                     colors = CardDefaults.cardColors(
@@ -185,7 +190,13 @@ fun AppDetailScreen(
                     ),
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("Part of ${group.name}", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            GroupDot(group.color)
+                            Text(
+                                "Part of ${group.name}",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                        }
                         Text(
                             when {
                                 group.members.size == 1 && group.hasLimits ->
@@ -290,6 +301,49 @@ fun AppDetailScreen(
                             ),
                         )
                     }
+                }
+
+                // Membership is editable from here as well as from the group screen,
+                // because this is where you are standing when you decide an app belongs
+                // with the others — going to find the group first is a trip that loses
+                // the thought.
+                Spacer(Modifier.height(14.dp))
+                Text("Part of a group", style = MaterialTheme.typography.bodyMedium)
+                Explain(
+                    short = if (group == null) {
+                        "Not in one · this app is budgeted on its own"
+                    } else {
+                        "Shares ${group.name}'s budget"
+                    },
+                    detail = "A group holds interchangeable apps to one budget between " +
+                        "them, so switching between them does not reset anything. An app " +
+                        "can be in one group at a time — picking a different one moves it.",
+                )
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = group == null,
+                        onClick = { group?.let { vm.saveGroup(it.withMember(packageName, false)) } },
+                        label = { Text("None") },
+                    )
+                    groups.forEach { candidate ->
+                        FilterChip(
+                            selected = candidate.id == group?.id,
+                            onClick = {
+                                if (candidate.id != group?.id) {
+                                    vm.saveGroup(candidate.withMember(packageName, true))
+                                }
+                            },
+                            label = { Text(candidate.name) },
+                            leadingIcon = if (candidate.color != 0) {
+                                { GroupDot(candidate.color, size = 10) }
+                            } else null,
+                        )
+                    }
+                    AssistChip(
+                        onClick = { vm.createGroupWith(label, packageName) },
+                        label = { Text("New group") },
+                    )
                 }
             }
 

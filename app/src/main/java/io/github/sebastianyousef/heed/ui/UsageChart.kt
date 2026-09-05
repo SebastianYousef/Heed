@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -40,6 +42,28 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * One coloured piece of a day's bar, and one row of the legend under it.
+ *
+ * Carries a resolved label and an optional fixed colour rather than a category, because
+ * there are now two things that can colour a slice — the category you gave an app, and
+ * the colour you gave a group of them — and the chart should not have to know which
+ * mechanism produced the piece it is drawing.
+ *
+ * @param argb a group's colour, or null to be coloured by [category]. A NEUTRAL slice
+ *        with no colour is the uncoloured bulk of the bar, which is deliberately the
+ *        default: a chart that shades every row says nothing, because the eye needs
+ *        somewhere to rest before a red segment means anything.
+ */
+data class UsageSlice(
+    val label: String,
+    val argb: Int?,
+    val category: AppCategory,
+    val ms: Long,
+) {
+    val plain: Boolean get() = argb == null && category == AppCategory.NEUTRAL
+}
+
+/**
  * The usage chart, in one place, because there were two of them and they had drifted.
  *
  * The whole-phone view and the per-app view answer the same question at different scopes,
@@ -56,6 +80,7 @@ import java.util.Locale
  *        follows from that — on the Attention screen the app list underneath re-queries,
  *        which is why selection is hoisted here rather than kept inside.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UsageChartCard(
     timeDays: List<DayTotal>,
@@ -64,7 +89,7 @@ fun UsageChartCard(
     onSelect: (Int?) -> Unit,
     modifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
-    categories: Map<Int, Map<AppCategory, Long>> = emptyMap(),
+    slices: Map<Int, List<UsageSlice>> = emptyMap(),
 ) {
     val haptics = LocalHapticFeedback.current
     val weekday = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
@@ -152,7 +177,7 @@ fun UsageChartCard(
                 showGrid = !showOpens,
                 initials = initials,
                 onContainer = onContainer,
-                categories = if (showOpens) emptyMap() else categories,
+                slices = if (showOpens) emptyMap() else slices,
             ) { index ->
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 // Tapping the selected bar returns to the week, so there is one control
@@ -162,29 +187,31 @@ fun UsageChartCard(
 
             // The split, in words, for the period on screen. A colour on its own tells
             // you there is a distinction and not which way round it goes.
-            val split = categories.entries
+            val legend = slices.entries
                 .filter { selectedDay == null || it.key == selectedDay }
-                .flatMap { it.value.entries }
-                .groupBy({ it.key }, { it.value })
-                .mapValues { it.value.sum() }
-            val sorted = listOf(AppCategory.PRODUCTIVE, AppCategory.DISTRACTING)
-                .mapNotNull { c -> split[c]?.takeIf { it > 0 }?.let { c to it } }
+                .flatMap { it.value }
+                .filterNot { it.plain }
+                .groupBy { it.label }
+                .map { (label, group) ->
+                    group.first().copy(ms = group.sumOf { it.ms })
+                }
+                .sortedByDescending { it.ms }
 
-            if (sorted.isNotEmpty() && !showOpens) {
+            if (legend.isNotEmpty() && !showOpens) {
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    sorted.forEach { (category, ms) ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    legend.forEach { slice ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 Modifier
                                     .padding(end = 5.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(categoryColor(category))
+                                    .background(sliceColor(slice, onContainer, selected = true))
                                     .height(9.dp)
                                     .width(9.dp)
                             )
                             Text(
-                                "${Time.duration(ms)} ${categoryLabel(category).lowercase()}",
+                                "${Time.duration(slice.ms)} ${slice.label.lowercase()}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = onContainer.copy(alpha = 0.85f),
                             )
@@ -222,7 +249,7 @@ private fun UsageBars(
     showGrid: Boolean,
     initials: SimpleDateFormat,
     onContainer: androidx.compose.ui.graphics.Color,
-    categories: Map<Int, Map<AppCategory, Long>>,
+    slices: Map<Int, List<UsageSlice>>,
     onSelect: (Int) -> Unit,
 ) {
     val peak = (series.maxOfOrNull { it.totalMs } ?: 0L).coerceAtLeast(1L)
@@ -255,7 +282,7 @@ private fun UsageBars(
                         // Split into what kind of time it was, where you have said. The
                         // segments are drawn bottom-up in a fixed order so a day never
                         // reshuffles its own colours between recompositions.
-                        val split = categories[index].orEmpty()
+                        val split = orderSlices(slices[index].orEmpty())
                         Column(
                             Modifier
                                 .fillMaxWidth(if (selected) 1f else 0.72f)
@@ -268,8 +295,7 @@ private fun UsageBars(
                                 ),
                             verticalArrangement = Arrangement.Bottom,
                         ) {
-                            val total = split.values.sum()
-                            if (total <= 0L) {
+                            if (split.isEmpty()) {
                                 Box(
                                     Modifier
                                         .fillMaxWidth()
@@ -277,27 +303,16 @@ private fun UsageBars(
                                         .background(onContainer.copy(alpha = if (selected) 1f else 0.35f))
                                 )
                             } else {
-                                // Top-down, because a Column lays out in order and the
-                                // eye reads the neutral bulk as the base.
-                                listOf(
-                                    AppCategory.DISTRACTING,
-                                    AppCategory.PRODUCTIVE,
-                                    AppCategory.NEUTRAL,
-                                ).forEach { category ->
-                                    val ms = split[category] ?: 0L
-                                    if (ms <= 0L) return@forEach
+                                // Laid out in the order given, which is why ordering is a
+                                // function rather than a sort at the call site: a bar that
+                                // reshuffled its own colours between recompositions would
+                                // be unreadable, and worse, would look like data changing.
+                                split.forEach { slice ->
                                     Box(
                                         Modifier
                                             .fillMaxWidth()
-                                            .weight(ms.toFloat())
-                                            .background(
-                                                if (category == AppCategory.NEUTRAL) {
-                                                    onContainer.copy(alpha = if (selected) 1f else 0.35f)
-                                                } else {
-                                                    categoryColor(category)
-                                                        .copy(alpha = if (selected) 1f else 0.65f)
-                                                }
-                                            )
+                                            .weight(slice.ms.toFloat())
+                                            .background(sliceColor(slice, onContainer, selected))
                                     )
                                 }
                             }
@@ -314,6 +329,37 @@ private fun UsageBars(
             }
         }
     }
+}
+
+/**
+ * Bar order: named things on top, the uncoloured bulk at the bottom.
+ *
+ * A Column lays out in order, so this is literally top to bottom on screen. The neutral
+ * remainder goes last because the eye reads it as the base the coloured parts sit on —
+ * and because it is the piece that changes size most, so anything above it would move.
+ */
+internal fun orderSlices(slices: List<UsageSlice>): List<UsageSlice> {
+    fun rank(s: UsageSlice) = when {
+        s.plain -> 3
+        s.argb != null -> 0
+        s.category == AppCategory.DISTRACTING -> 1
+        else -> 2
+    }
+    return slices.filter { it.ms > 0 }.sortedWith(compareBy({ rank(it) }, { -it.ms }))
+}
+
+/** A slice's colour: its group's, or its category's, or the plain bar. */
+@Composable
+private fun sliceColor(
+    slice: UsageSlice,
+    onContainer: androidx.compose.ui.graphics.Color,
+    selected: Boolean,
+): androidx.compose.ui.graphics.Color = when {
+    slice.argb != null ->
+        androidx.compose.ui.graphics.Color(slice.argb).copy(alpha = if (selected) 1f else 0.65f)
+    slice.category != AppCategory.NEUTRAL ->
+        categoryColor(slice.category).copy(alpha = if (selected) 1f else 0.65f)
+    else -> onContainer.copy(alpha = if (selected) 1f else 0.35f)
 }
 
 /** Names the selected period, so nothing on either screen is ever ambiguous about it. */

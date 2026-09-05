@@ -285,12 +285,20 @@ data class AlertCountRow(
 data class DayTotalRow(val dayIndex: Int, val totalMs: Long)
 
 /**
- * One day's screen time split by what kind of time you said it was.
+ * One app's time on one day, with the category you gave the app.
  *
- * Produced by SQLite rather than by grouping the app list in Kotlin, because the chart
- * needs seven days of it and the app list only ever holds one period.
+ * Aggregated in SQLite rather than by grouping the app list in Kotlin, because the chart
+ * needs seven days of it and the app list only ever holds one period. Kept per *app*
+ * rather than pre-summed per category, because a group is a set of packages held in one
+ * row — SQLite cannot join on it, and the mapping from app to group is a hash lookup
+ * against a cache that is already warm.
  */
-data class DayCategoryRow(val dayIndex: Int, val category: String, val totalMs: Long)
+data class DayAppRow(
+    val dayIndex: Int,
+    val packageName: String,
+    val category: String,
+    val totalMs: Long,
+)
 
 
 /**

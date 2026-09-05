@@ -322,20 +322,58 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      * look like", and a flat list of rows would make it search for that seven times per
      * frame.
      */
-    val dayCategories: StateFlow<Map<Int, Map<io.github.sebastianyousef.heed.focus.AppCategory, Long>>> =
-        repo.dao.observeDayCategories(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
-            .map { rows ->
-                rows.groupBy { it.dayIndex }.mapValues { (_, group) ->
-                    group.associate { row ->
+    /**
+     * Each day's screen time, cut into the coloured pieces the chart draws.
+     *
+     * Cut here rather than in SQL because a group is a set of packages living in one row,
+     * which SQLite cannot join against — and because the two things that can colour a
+     * slice have to be resolved in one place or they will disagree. A group with a colour
+     * wins over the app's category: the group is the more specific statement, and it is
+     * the one the user made most recently and most deliberately.
+     */
+    val daySlices: StateFlow<Map<Int, List<UsageSlice>>> =
+        repo.dao.observeDayAppTotals(io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6))
+            .combine(repo.dao.observeGroups()) { rows, groups ->
+                val byPackage = buildMap {
+                    for (g in groups) if (g.color != 0) for (pkg in g.members) put(pkg, g)
+                }
+                rows.groupBy { it.dayIndex }.mapValues { (_, day) ->
+                    day.groupBy { row ->
+                        val group = byPackage[row.packageName]
                         val category = runCatching {
                             io.github.sebastianyousef.heed.focus.AppCategory.valueOf(row.category)
                         }.getOrDefault(io.github.sebastianyousef.heed.focus.AppCategory.NEUTRAL)
-                        category to row.totalMs
-                    }
+                        if (group != null) {
+                            group.name to group.color
+                        } else {
+                            categoryLabelOf(category) to 0
+                        } to category
+                    }.map { (key, group) ->
+                        val (labelled, category) = key
+                        UsageSlice(
+                            label = labelled.first,
+                            argb = labelled.second.takeIf { it != 0 },
+                            category = category,
+                            ms = group.sumOf { it.totalMs },
+                        )
+                    }.sortedByDescending { it.ms }
                 }
             }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
+     * The name an uncoloured slice carries.
+     *
+     * Not [categoryLabel], which is a composable in the UI layer — and not worth making
+     * one, since the three words are the same three words wherever they are read.
+     */
+    private fun categoryLabelOf(category: io.github.sebastianyousef.heed.focus.AppCategory) =
+        when (category) {
+            io.github.sebastianyousef.heed.focus.AppCategory.PRODUCTIVE -> "Productive"
+            io.github.sebastianyousef.heed.focus.AppCategory.DISTRACTING -> "Distracting"
+            io.github.sebastianyousef.heed.focus.AppCategory.NEUTRAL -> "Everything else"
+        }
 
     private val _modelStats = MutableStateFlow(0 to 0f)
     val modelStats: StateFlow<Pair<Int, Float>> = _modelStats
@@ -476,6 +514,50 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
             launches = repo.dao.launchesForGroup(members, since),
             scrollSeconds = repo.dao.scrollSecondsForGroup(members, since),
         )
+    }
+
+    /** One group's week, as its own series — the same chart the app screen draws. */
+    fun groupDays(group: io.github.sebastianyousef.heed.focus.AppGroup):
+        kotlinx.coroutines.flow.Flow<List<DayTotal>> =
+        if (group.members.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+        else repo.dao.observeDayTotalsForGroup(
+            group.members,
+            io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6),
+        ).map(::toWeek).flowOn(Dispatchers.Default)
+
+    fun groupOpens(group: io.github.sebastianyousef.heed.focus.AppGroup):
+        kotlinx.coroutines.flow.Flow<List<DayTotal>> =
+        if (group.members.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+        else repo.dao.observeOpensForGroup(
+            group.members,
+            io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6),
+        ).map(::toWeek).flowOn(Dispatchers.Default)
+
+    /** Which member spent it, over the period the group screen is showing. */
+    fun groupMembers(
+        group: io.github.sebastianyousef.heed.focus.AppGroup,
+        day: Int?,
+    ): kotlinx.coroutines.flow.Flow<List<io.github.sebastianyousef.heed.data.AppUsageRow>> {
+        if (group.members.isEmpty()) return kotlinx.coroutines.flow.flowOf(emptyList())
+        val from = if (day == null) {
+            io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6)
+        } else {
+            io.github.sebastianyousef.heed.core.Time.startOfDaysAgo(6 - day)
+        }
+        val to = if (day == null) Long.MAX_VALUE else from + io.github.sebastianyousef.heed.core.Time.DAY_MS
+        return repo.dao.observeUsageForGroup(group.members, from, to).flowOn(Dispatchers.Default)
+    }
+
+    /**
+     * A new group made from the app you are looking at, named after it.
+     *
+     * The name is a starting point rather than a guess to live with — "Snapchat" is a bad
+     * name for a group and is meant to be edited — but an unnamed group in a list of
+     * groups is worse, and naming it is a decision better made once the second app is in
+     * it and the habit has a shape.
+     */
+    fun createGroupWith(name: String, pkg: String) = viewModelScope.launch {
+        repo.saveGroup(io.github.sebastianyousef.heed.focus.AppGroup(name = name, packages = pkg))
     }
 
     fun createGroup(name: String, onCreated: (Long) -> Unit) = viewModelScope.launch {

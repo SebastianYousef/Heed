@@ -26,7 +26,7 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         io.github.sebastianyousef.heed.focus.FocusSessionRecord::class,
         io.github.sebastianyousef.heed.focus.AppGroup::class,
     ],
-    version = 13,
+    version = HeedDatabase.SCHEMA_VERSION,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -34,6 +34,15 @@ abstract class HeedDatabase : RoomDatabase() {
     abstract fun dao(): HeedDao
 
     companion object {
+
+        /**
+         * The on-disk format, so the About screen can print it.
+         *
+         * Duplicating the number in the annotation would be a way for the two to drift,
+         * so the annotation reads this — which means a migration that forgets to bump it
+         * fails at build time rather than mislabelling a bug report.
+         */
+        const val SCHEMA_VERSION = 14
 
         /**
          * Adds content-hash dedupe and the live-update channel table. Written out rather
@@ -275,6 +284,13 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /** A colour for a group, so a chart can say which habit a bar is made of. */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_groups ADD COLUMN color INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -282,7 +298,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14).build().also { instance = it }
         }
     }
 }

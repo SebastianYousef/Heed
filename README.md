@@ -50,7 +50,8 @@ promise about the code, but as a thing the kernel enforces. See [Privacy](docs/p
   messages open.
 - **Shared budgets across a group of apps.** Half an hour each of three feeds is an hour
   and a half of the same habit, and three separate limits all report success. A group
-  gives them one budget between them.
+  gives them one budget between them — with its own week, a breakdown of which member
+  spent it, and a colour, so the chart can say which *habit* Tuesday was made of.
 - **Break the feed.** A pause every N scrolls that takes nothing away and hands the feed
   straight back. An infinite feed works by never presenting a last post, so carrying on is
   never a decision — this manufactures the moment where it is.
@@ -61,6 +62,8 @@ promise about the code, but as a thing the kernel enforces. See [Privacy](docs/p
   stopping takes ninety seconds, because the person who set the session and the person who
   wants out of it are not the same person.
 - **Bedtime**, and a **grey screen** for the apps that are built on colour.
+- **An About screen** with the version, build and storage format — the four numbers any
+  account of a problem needs.
 - **A home-screen widget** with today's screen time, how much of it was scrolling, and how
   many notifications Heed absorbed.
 

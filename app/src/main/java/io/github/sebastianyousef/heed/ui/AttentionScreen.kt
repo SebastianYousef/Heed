@@ -91,7 +91,7 @@ fun AttentionScreen(
     val days by vm.usageDays.collectAsState()
     val openDays by vm.usageOpenDays.collectAsState()
     val rows by vm.rangeApps.collectAsState()
-    val categories by vm.dayCategories.collectAsState()
+    val slices by vm.daySlices.collectAsState()
     val strandedRules by vm.rulesNeedingScreenAccess.collectAsState()
     val groups by vm.groups.collectAsState()
     val range by vm.range.collectAsState()
@@ -142,7 +142,7 @@ fun AttentionScreen(
                     openDays = openDays,
                     selectedDay = range.dayIndex,
                     onSelect = { vm.selectRange(UsageRange(it)) },
-                    categories = categories,
+                    slices = slices,
                 )
             }
 
@@ -172,6 +172,7 @@ fun AttentionScreen(
                         row = row,
                         shareOfTotal = if (total > 0) row.totalMs.toFloat() / total else 0f,
                         rule = rules[row.packageName],
+                        group = groups.firstOrNull { row.packageName in it.members },
                         onClick = { onOpenApp(row.packageName) },
                     )
                 }
@@ -238,6 +239,7 @@ private fun AppRow(
     row: AppUsageRow,
     shareOfTotal: Float,
     rule: FocusRule?,
+    group: io.github.sebastianyousef.heed.focus.AppGroup?,
     onClick: () -> Unit,
 ) {
     val label = rememberAppLabel(row.packageName, row.appLabel)
@@ -251,6 +253,7 @@ private fun AppRow(
                     Text(
                         buildString {
                             append("${row.launches} opens")
+                            group?.let { append(" · ${it.name}") }
                             ruleSummary(rule)?.let { append(" · $it") }
                         },
                         style = MaterialTheme.typography.labelSmall,
@@ -280,7 +283,17 @@ private fun AppRow(
                         .fillMaxWidth(shareOfTotal.coerceIn(0f, 1f))
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(categoryColor(rule?.category ?: AppCategory.NEUTRAL))
+                        // The same precedence the chart uses: a coloured group is the
+                        // more specific statement, so it wins over the app's category.
+                        // Two screens disagreeing about what colour an app is would make
+                        // both of them useless.
+                        .background(
+                            if (group != null && group.color != 0) {
+                                androidx.compose.ui.graphics.Color(group.color)
+                            } else {
+                                categoryColor(rule?.category ?: AppCategory.NEUTRAL)
+                            }
+                        )
                 )
             }
         }

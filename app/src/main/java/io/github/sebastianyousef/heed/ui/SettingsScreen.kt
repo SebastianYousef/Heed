@@ -17,6 +17,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -35,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
+import io.github.sebastianyousef.heed.BuildConfig
 import io.github.sebastianyousef.heed.export.RedactionLevel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -380,9 +382,70 @@ fun SettingsScreen(vm: InboxViewModel, onBack: () -> Unit) {
                     TextButton(onClick = { vm.resetModel() }) { Text("Forget everything") }
                 }
             }
+
+            AboutSection()
         }
     }
 }
+
+/**
+ * Which version you are on, and what it is.
+ *
+ * Last on the screen, because it is the thing you go looking for rather than the thing
+ * you meet. The build line is deliberately verbose in one direction — version name, code,
+ * storage format and Android level — because those four numbers are what any account of
+ * a problem needs and nobody can find them from inside an app that does not print them.
+ */
+@Composable
+private fun AboutSection() {
+    val context = LocalContext.current
+    Section("About Heed") {
+        Text(
+            "Version ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "build ${BuildConfig.VERSION_CODE} · storage format " +
+                "${io.github.sebastianyousef.heed.data.HeedDatabase.SCHEMA_VERSION} · " +
+                "Android ${android.os.Build.VERSION.SDK_INT}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "A notification filter and an attention meter that both run entirely on this " +
+                "phone. It holds no internet permission, so nothing it reads can leave.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "GPL-3.0-or-later · © 2026 Sebastian Yousef",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Explain(
+            short = "Free to use, study, change and share",
+            detail = "Anything built on this has to come with its source under the same " +
+                "licence. The argument for granting an app this much access is that you " +
+                "can read what it does with it, and a closed fork would inherit the trust " +
+                "without the property that earned it.",
+        )
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = {
+            // Handed to a browser rather than fetched: Heed has no network permission and
+            // could not open this itself if it wanted to.
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(SOURCE_URL))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }) { Text("Source and documentation") }
+    }
+}
+
+private const val SOURCE_URL = "https://github.com/SebastianYousef/Heed"
 
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {

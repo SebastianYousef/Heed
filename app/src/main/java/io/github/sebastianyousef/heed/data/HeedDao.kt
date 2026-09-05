@@ -443,16 +443,17 @@ interface HeedDao {
     @Query(
         """
         SELECT (s.startedAt - :originOfDay) / 86400000 AS dayIndex,
+               s.packageName AS packageName,
                COALESCE(r.category, 'NEUTRAL') AS category,
                SUM(s.durationMs) AS totalMs
         FROM sessions s
         LEFT JOIN focus_rules r ON r.packageName = s.packageName
         WHERE s.startedAt >= :originOfDay
           AND COALESCE(r.excludedFromStats, 0) = 0
-        GROUP BY dayIndex, category
+        GROUP BY dayIndex, s.packageName
         """
     )
-    fun observeDayCategories(originOfDay: Long): Flow<List<DayCategoryRow>>
+    fun observeDayAppTotals(originOfDay: Long): Flow<List<DayAppRow>>
 
     /** Scrolling across every app since a moment — the widget's second number. */
     @Query("SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans WHERE startedAt >= :since")
@@ -538,6 +539,50 @@ interface HeedDao {
         """
     )
     suspend fun scrollSecondsForGroup(packages: List<String>, since: Long): Int
+
+    /** A group's totals per calendar day, for the chart on its own screen. */
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex,
+               SUM(durationMs) AS totalMs
+        FROM sessions
+        WHERE packageName IN (:packages) AND startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeDayTotalsForGroup(packages: List<String>, originOfDay: Long): Flow<List<DayTotalRow>>
+
+    @Query(
+        """
+        SELECT (startedAt - :originOfDay) / 86400000 AS dayIndex, COUNT(*) AS totalMs
+        FROM sessions
+        WHERE packageName IN (:packages) AND startedAt >= :originOfDay
+        GROUP BY dayIndex
+        """
+    )
+    fun observeOpensForGroup(packages: List<String>, originOfDay: Long): Flow<List<DayTotalRow>>
+
+    /**
+     * Which member of a group spent the budget, over a window.
+     *
+     * The question the group screen exists to answer second: a shared limit tells you the
+     * habit ran out, and this tells you which app it ran out in — which is the only thing
+     * that turns "I am out of feeds" into a decision about one of them.
+     *
+     * Deliberately *not* filtered by `excludedFromStats`, because these totals are the
+     * ones the limit is enforced on. A member you had marked "not counted" would
+     * otherwise spend the budget invisibly.
+     */
+    @Query(
+        """
+        SELECT packageName, MAX(appLabel) AS appLabel, SUM(durationMs) AS totalMs,
+               COUNT(*) AS launches
+        FROM sessions
+        WHERE packageName IN (:packages) AND startedAt >= :from AND startedAt < :to
+        GROUP BY packageName ORDER BY totalMs DESC
+        """
+    )
+    fun observeUsageForGroup(packages: List<String>, from: Long, to: Long): Flow<List<AppUsageRow>>
 
     // --- focus sessions ---
 

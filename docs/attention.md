@@ -107,6 +107,24 @@ The numbers on the group screen are read with the same queries the enforcement u
 rather than derived from the statistics — which leave out any app you marked *not counted*.
 A bar that showed room left while the limit was firing would be worse than no bar.
 
+**A group has its own week.** Its screen carries the same chart the phone and each app
+get, at a third scope, and under it a breakdown of which member actually spent the budget
+— because a shared limit tells you the habit ran out and not which app it ran out in, and
+only the second one is a decision you can act on. Tapping a day narrows both.
+
+**Give it a colour** and the weekly chart on the Attention screen stops being about apps
+and starts being about habits: the red part of Tuesday is the thing to change. The colour
+overrides the productive/distracting colour for its members, because a group is the more
+specific statement of the two, and the same precedence is used on the app list so no two
+screens disagree about what colour an app is. The palette is eight fixed colours rather
+than a free picker — they have to stay apart from each other at nine pixels square, in
+both themes, and an arbitrary colour cannot be held to that. A group with no colour makes
+no claim, which is the default.
+
+Membership is editable from both ends: from the group's own screen, and from the app's
+screen under *How this app counts*, which is where you are standing when you decide an app
+belongs with the others.
+
 ## Apps Heed will never block
 
 `CriticalApps` refuses to block authenticators, diallers, alarms, password managers and
@@ -194,7 +212,8 @@ launcher you pass through on the way to something else, the intent resolver, a s
 dialog. Counting twenty seconds of launcher between two real sessions does not make the
 total more accurate, it makes it less.
 
-**Productive or distracting** colours the charts. Deliberately your judgement and never
+**Productive or distracting** colours the charts, unless the app is in a group that has
+its own colour, which wins. Deliberately your judgement and never
 Heed's: the same app is a lecture hall for one person and a slot machine for the next, and
 a category shipped in a list would be wrong about the app that matters most. Unsorted is
 the default and stays uncoloured, because a screen that shades every row says nothing —
