@@ -3,8 +3,10 @@ package io.github.sebastianyousef.heed.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,9 +28,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * One line of description, with the reasoning behind it folded away.
@@ -134,4 +140,82 @@ fun GroupHeading(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp),
     )
     Spacer(Modifier.height(2.dp))
+}
+
+/**
+ * A limit, set by dragging, with the number it currently means written above it.
+ *
+ * Shared rather than reimplemented per screen because it had already been written twice
+ * with different rounding and different labels for the same "off" state, so a limit of
+ * zero read as "No limit" in one place and "0 minutes" in another.
+ */
+@Composable
+fun LimitSlider(label: String, value: Float, max: Float, onChange: (Int) -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Slider(
+        value = value.coerceIn(0f, max),
+        onValueChange = { onChange(it.roundToInt()) },
+        valueRange = 0f..max,
+    )
+}
+
+/**
+ * How much of a budget is gone, as a bar and as a sentence.
+ *
+ * Both, deliberately. The bar is what makes "nearly out" visible at a glance; the numbers
+ * are what makes it checkable, and a limit you cannot check is one you stop believing the
+ * first time it fires earlier than you expected.
+ */
+@Composable
+fun LimitMeter(
+    label: String,
+    used: Int,
+    limit: Int,
+    render: (Int) -> String,
+    modifier: Modifier = Modifier,
+) {
+    if (limit <= 0) return
+    val fraction = (used.toFloat() / limit).coerceIn(0f, 1f)
+    val spent = used >= limit
+    Column(modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+            Text(
+                "${render(used)} of ${render(limit)}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (spent) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (spent) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(
+                        if (spent) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
+                    )
+            )
+        }
+    }
 }

@@ -35,6 +35,8 @@ import io.github.sebastianyousef.heed.ui.AppsScreen
 import io.github.sebastianyousef.heed.ui.AttentionScreen
 import io.github.sebastianyousef.heed.ui.DetailScreen
 import io.github.sebastianyousef.heed.ui.FocusScreen
+import io.github.sebastianyousef.heed.ui.GroupDetailScreen
+import io.github.sebastianyousef.heed.ui.GroupsScreen
 import io.github.sebastianyousef.heed.ui.HeedTheme
 import io.github.sebastianyousef.heed.ui.InboxScreen
 import io.github.sebastianyousef.heed.ui.InboxViewModel
@@ -128,6 +130,7 @@ class MainActivity : ComponentActivity() {
                                 vm = vm,
                                 onSettings = { nav.navigate("settings") },
                                 onOpenApp = { pkg -> nav.navigate("app/$pkg") },
+                                onOpenGroups = { nav.navigate("groups") },
                             )
                         }
                         composable(
@@ -138,6 +141,7 @@ class MainActivity : ComponentActivity() {
                                 vm = vm,
                                 packageName = backStack.arguments?.getString("pkg").orEmpty(),
                                 onBack = { nav.popBackStack() },
+                                onOpenGroup = { id -> nav.navigate("group/$id") },
                             )
                         }
                         composable(
@@ -147,6 +151,23 @@ class MainActivity : ComponentActivity() {
                             DetailScreen(
                                 vm = vm,
                                 id = backStack.arguments?.getLong("id") ?: 0L,
+                                onBack = { nav.popBackStack() },
+                            )
+                        }
+                        composable("groups") {
+                            GroupsScreen(
+                                vm = vm,
+                                onBack = { nav.popBackStack() },
+                                onOpen = { id -> nav.navigate("group/$id") },
+                            )
+                        }
+                        composable(
+                            "group/{id}",
+                            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                        ) { backStack ->
+                            GroupDetailScreen(
+                                vm = vm,
+                                groupId = backStack.arguments?.getLong("id") ?: 0L,
                                 onBack = { nav.popBackStack() },
                             )
                         }

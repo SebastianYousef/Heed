@@ -24,8 +24,9 @@ import io.github.sebastianyousef.heed.usage.SessionRecord
         FocusRule::class,
         LearnedSurface::class,
         io.github.sebastianyousef.heed.focus.FocusSessionRecord::class,
+        io.github.sebastianyousef.heed.focus.AppGroup::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -251,6 +252,29 @@ abstract class HeedDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds app groups: a set of apps that share one budget.
+         *
+         * Membership lives on the group rather than on the rule, because an app in no
+         * group is the common case and should cost nothing to represent.
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_groups (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        packages TEXT NOT NULL DEFAULT '',
+                        dailyUsageSeconds INTEGER NOT NULL DEFAULT 0,
+                        dailyLaunchLimit INTEGER NOT NULL DEFAULT 0,
+                        dailyScrollSeconds INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile private var instance: HeedDatabase? = null
 
         fun get(context: Context): HeedDatabase = instance ?: synchronized(this) {
@@ -258,7 +282,7 @@ abstract class HeedDatabase : RoomDatabase() {
                 context.applicationContext,
                 HeedDatabase::class.java,
                 "heed.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13).build().also { instance = it }
         }
     }
 }

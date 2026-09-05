@@ -149,7 +149,8 @@ object KnownSurfaces {
      * in more than one open-source blocker. The set below was cross-checked against the
      * Mindful project, which independently arrived at the same ids for Snapchat,
      * Instagram, YouTube and Reddit; the code that uses them here is Heed's own, because
-     * Mindful is GPL-2.0 and Heed is MIT (see LICENSE).
+     * Mindful is GPL-2.0 and Heed is GPL-3.0-or-later (see LICENSE); no code was taken
+     * either way — only the observation that a given view id names a given screen.
      *
      * Note what is *not* here. There is no anchor for a chat list, a story tray or a
      * profile, because Heed only ever blocks on a positive match: anything it cannot

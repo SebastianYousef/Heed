@@ -101,9 +101,9 @@ class AttentionService : Service() {
                     !screenOn -> IDLE_POLL_MS
                     // A second and a half matters when something is actually going to
                     // happen the moment an app opens — a limit closing it, colour
-                    // draining out of it. With nothing configured this service exists
-                    // only as a backstop for banking apps the scroll watcher cannot see,
-                    // and checking that eight times a minute is plenty.
+                    // draining out of it. With nothing configured this service is only a
+                    // backstop for the apps the scroll watcher is not allowed to see, and
+                    // checking that eight times a minute is plenty.
                     needsPromptness(repo) -> POLL_MS
                     else -> LAZY_POLL_MS
                 }
@@ -160,7 +160,14 @@ class AttentionService : Service() {
         }
 
         val focus = repo.focusState()
-        if (focus == null &&
+        // A group limit counts as a reason to look, on its own. Its whole purpose is to
+        // hold apps that were never worth a rule of their own — so gating the check on
+        // there being a rule would mean the budget only applied to the members that
+        // needed it least.
+        val group = repo.cachedGroupFor(pkg)?.takeIf {
+            it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
+        }
+        if (focus == null && group == null &&
             (rule == null ||
                 (rule.dailyUsageSeconds <= 0 && rule.dailyLaunchLimit <= 0 && !bedtimeNow))
         ) {
@@ -172,6 +179,7 @@ class AttentionService : Service() {
             bedtime = { bedtimeNow },
             focus = { focus },
             exempt = { repo.focusExempt() },
+            group = { repo.cachedGroupFor(it) },
         ).onAppOpened(pkg)
         if (verdict is FocusEnforcer.Verdict.Block) {
             if (!Surfacer.canDrawOverlays(this)) return

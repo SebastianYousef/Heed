@@ -118,6 +118,28 @@ object ScrollDecision {
         return Outcome.Continue
     }
 
+    /**
+     * Whether a group's shared scrolling budget is worth a disk read for this app.
+     *
+     * Separate from [decide] rather than folded into it, because a group budget applies
+     * to members that have no rule at all — and [decide] takes a rule. Making the rule
+     * nullable to accommodate that would put a null check on every branch of the one
+     * function in Heed that runs tens of times a second, to express something that is
+     * genuinely a second, independent question.
+     */
+    fun groupOutcome(packageName: String, group: AppGroup?): Outcome {
+        if (group == null || group.dailyScrollSeconds <= 0) return Outcome.Continue
+        if (CriticalApps.isProtected(packageName)) return Outcome.Continue
+        return Outcome.NeedsBudgetCheck
+    }
+
+    /** The message for a group budget that has run out. */
+    fun groupBudgetExhausted(group: AppGroup) = Outcome.Stop(
+        headline = "${group.name} is out of scrolling",
+        detail = "${group.dailyScrollSeconds / 60} minutes a day across the whole group, " +
+            "and it is spent. Switching to another one of them spends the same budget.",
+    )
+
     /** The message for a budget that has run out, once the caller has read the total. */
     fun budgetExhausted(rule: FocusRule) = Outcome.Stop(
         headline = "You're out of scrolling in ${rule.appLabel}",

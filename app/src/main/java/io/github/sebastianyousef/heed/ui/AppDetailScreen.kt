@@ -24,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,13 +70,19 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit) {
+fun AppDetailScreen(
+    vm: InboxViewModel,
+    packageName: String,
+    onBack: () -> Unit,
+    onOpenGroup: (Long) -> Unit,
+) {
     val context = LocalContext.current
     val stats by vm.attention.collectAsState()
     val rules by vm.focusRules.collectAsState()
     val surfaceMap by vm.surfaces.collectAsState()
     val week by vm.weekByApp.collectAsState()
     val strict by vm.strict.collectAsState()
+    val groups by vm.groups.collectAsState()
 
     val stat = stats.firstOrNull { it.packageName == packageName }
     val fallbackLabel = stat?.appLabel ?: packageName
@@ -163,6 +168,41 @@ fun AppDetailScreen(vm: InboxViewModel, packageName: String, onBack: () -> Unit)
                                 "at the wrong moment is worse than any amount of screen time.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // Named before any of this app's own limits, because it changes what they
+            // mean: a group budget can close this app while every slider below still
+            // shows room left, and a limit that fires for a reason the screen does not
+            // mention is one you assume is broken.
+            groups.firstOrNull { packageName in it.members }?.let { group ->
+                Card(
+                    Modifier.fillMaxWidth().clickable { onOpenGroup(group.id) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Part of ${group.name}", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            when {
+                                group.members.size == 1 && group.hasLimits ->
+                                    "The only app in it, so the shared budget is this " +
+                                        "app's budget — and it can close it whatever is " +
+                                        "set below."
+                                group.hasLimits ->
+                                    "Shares one budget with ${group.members.size - 1} other " +
+                                        (if (group.members.size == 2) "app" else "apps") +
+                                        ". That budget can close this one whatever is set " +
+                                        "below."
+                                else ->
+                                    "Grouped with ${group.members.size - 1} other " +
+                                        (if (group.members.size == 2) "app" else "apps") +
+                                        ", with no shared limit set yet."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
@@ -516,18 +556,4 @@ private fun SettingBlock(title: String, content: @Composable () -> Unit) {
             content()
         }
     }
-}
-
-@Composable
-private fun LimitSlider(label: String, value: Float, max: Float, onChange: (Int) -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Slider(
-        value = value.coerceIn(0f, max),
-        onValueChange = { onChange(it.roundToInt()) },
-        valueRange = 0f..max,
-    )
 }

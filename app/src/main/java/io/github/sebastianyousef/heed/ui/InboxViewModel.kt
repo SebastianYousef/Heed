@@ -371,6 +371,35 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun forget(id: Long) = viewModelScope.launch { repo.forget(id) }
 
+    /**
+     * Deletion of several at once, and the way back from it.
+     *
+     * Held in memory rather than as a "deleted" flag on the row, because a deletion that
+     * leaves the text in the database is not the thing the button says it is — and the
+     * reason to delete a notification here is usually that it should not be on disk. The
+     * cost is that the undo lasts as long as the snackbar and not a second longer, which
+     * is the honest trade and is what the snackbar is for.
+     */
+    private val _undoableDeletes = MutableStateFlow<List<NotificationRecord>>(emptyList())
+    val undoableDeletes: StateFlow<List<NotificationRecord>> = _undoableDeletes
+
+    fun forgetMany(ids: Set<Long>) = viewModelScope.launch {
+        if (ids.isEmpty()) return@launch
+        val records = ids.mapNotNull { repo.dao.recordById(it) }
+        records.forEach { repo.forget(it.id) }
+        _undoableDeletes.value = records
+    }
+
+    fun undoDeletes() = viewModelScope.launch {
+        val records = _undoableDeletes.value
+        _undoableDeletes.value = emptyList()
+        // Re-inserted with their original ids, so anything that referred to them still
+        // does — including the notification still sitting in the shade.
+        records.forEach { repo.dao.insert(it) }
+    }
+
+    fun deletesConsumed() { _undoableDeletes.value = emptyList() }
+
     fun setPolicy(pkg: String, label: String, policy: AppPolicy) = viewModelScope.launch {
         repo.setPolicy(pkg, label, policy)
     }
@@ -416,6 +445,73 @@ class InboxViewModel(app: Application) : AndroidViewModel(app) {
         repo.dao.observeFocusRules()
             .map { rules -> rules.filter { it.needsScreenAccess } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // --- app groups ---
+
+    /** What a group has spent today, against the limits it was given. */
+    data class GroupSpend(
+        val usageSeconds: Int = 0,
+        val launches: Int = 0,
+        val scrollSeconds: Int = 0,
+    )
+
+    val groups: StateFlow<List<io.github.sebastianyousef.heed.focus.AppGroup>> =
+        repo.dao.observeGroups()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Today's spend, read with the same queries the enforcement uses.
+     *
+     * Deliberately not derived from the statistics flows, which leave out the apps marked
+     * "not counted". A number on this screen that disagrees with the number the block is
+     * made on would be worse than no number: the limit would fire while the bar still
+     * showed room left, and there would be no way to tell from the app why.
+     */
+    suspend fun spendToday(group: io.github.sebastianyousef.heed.focus.AppGroup): GroupSpend {
+        val since = io.github.sebastianyousef.heed.core.Time.startOfToday()
+        val members = group.members
+        if (members.isEmpty()) return GroupSpend()
+        return GroupSpend(
+            usageSeconds = repo.dao.usageSecondsForGroup(members, since),
+            launches = repo.dao.launchesForGroup(members, since),
+            scrollSeconds = repo.dao.scrollSecondsForGroup(members, since),
+        )
+    }
+
+    fun createGroup(name: String, onCreated: (Long) -> Unit) = viewModelScope.launch {
+        val id = repo.saveGroup(io.github.sebastianyousef.heed.focus.AppGroup(name = name))
+        onCreated(id)
+    }
+
+    /** Strict mode applies to a shared budget exactly as it does to a per-app one. */
+    fun saveGroup(group: io.github.sebastianyousef.heed.focus.AppGroup) = viewModelScope.launch {
+        if (repo.strictActive() && group.id != 0L) {
+            val existing = repo.dao.allGroups().firstOrNull { it.id == group.id }
+            if (existing != null && loosensGroup(existing, group)) return@launch
+        }
+        repo.saveGroup(group)
+    }
+
+    fun deleteGroup(group: io.github.sebastianyousef.heed.focus.AppGroup) = viewModelScope.launch {
+        // Deleting a group with limits is the largest loosening available, so strict mode
+        // has to cover it. Without this the whole feature would be one tap to undo.
+        if (repo.strictActive() && group.hasLimits) return@launch
+        repo.deleteGroup(group.id)
+    }
+
+    private fun loosensGroup(
+        old: io.github.sebastianyousef.heed.focus.AppGroup,
+        new: io.github.sebastianyousef.heed.focus.AppGroup,
+    ): Boolean {
+        fun limitLoosened(o: Int, n: Int) = o > 0 && (n == 0 || n > o)
+        // Taking an app out of a limited group is a loosening even though no number
+        // changed: the budget stops applying where it used to.
+        val removed = old.hasLimits && new.members.size < old.members.size
+        return removed ||
+            limitLoosened(old.dailyUsageSeconds, new.dailyUsageSeconds) ||
+            limitLoosened(old.dailyLaunchLimit, new.dailyLaunchLimit) ||
+            limitLoosened(old.dailyScrollSeconds, new.dailyScrollSeconds)
+    }
 
     private val _strict = MutableStateFlow(false)
     val strict: StateFlow<Boolean> = _strict

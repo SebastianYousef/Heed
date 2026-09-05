@@ -28,6 +28,12 @@ class FocusEnforcer(private val data: Data) {
         /** The running focus session, or null. */
         suspend fun focus(): FocusSession.State? = null
 
+        /** The group this app belongs to, or null. At most one; see [AppGroup]. */
+        suspend fun group(pkg: String): AppGroup? = null
+
+        suspend fun groupUsageSecondsToday(group: AppGroup): Int = 0
+        suspend fun groupLaunchesToday(group: AppGroup): Int = 0
+
         /**
          * Apps a focus session must never turn away: the launcher, and Heed.
          *
@@ -67,6 +73,15 @@ class FocusEnforcer(private val data: Data) {
             )
         }
 
+        // Group limits are checked before the per-app rule, and — like a session, and for
+        // a related reason — cannot be gated on there being one. The point of a group is
+        // that the apps in it are interchangeable: budgeting them one at a time is a
+        // budget you satisfy by switching apps. So membership alone is enough to be
+        // stopped, whether or not that particular member has a rule of its own.
+        data.group(pkg)?.let { group ->
+            groupVerdict(group)?.let { return it }
+        }
+
         val rule = data.rule(pkg) ?: return Verdict.Allow
 
         // Bedtime covers every app that has a rule at all, so it needs no separate list.
@@ -103,12 +118,39 @@ class FocusEnforcer(private val data: Data) {
         return Verdict.Allow
     }
 
+    /** Whether a group's shared budget has already been spent today. */
+    private suspend fun groupVerdict(group: AppGroup): Verdict? {
+        if (group.dailyLaunchLimit > 0) {
+            val launches = data.groupLaunchesToday(group)
+            if (launches >= group.dailyLaunchLimit) {
+                return Verdict.Block(
+                    headline = "That is ${launches} opens across ${group.name}",
+                    detail = "You gave the whole group ${group.dailyLaunchLimit} a day. " +
+                        "The count is shared, so switching between them does not reset it.",
+                )
+            }
+        }
+
+        if (group.dailyUsageSeconds > 0) {
+            val used = data.groupUsageSecondsToday(group)
+            if (used >= group.dailyUsageSeconds) {
+                return Verdict.Block(
+                    headline = "${group.name} is done for today",
+                    detail = "${group.dailyUsageSeconds / 60} minutes for the group, and " +
+                        "you have used ${used / 60} across all of it.",
+                )
+            }
+        }
+        return null
+    }
+
     companion object {
         fun from(
             dao: HeedDao,
             bedtime: suspend () -> Boolean = { false },
             focus: suspend () -> FocusSession.State? = { null },
             exempt: suspend () -> Set<String> = { emptySet() },
+            group: (String) -> AppGroup? = { null },
         ) = FocusEnforcer(object : Data {
             override suspend fun rule(pkg: String) = dao.focusRuleFor(pkg)
             override suspend fun usageSecondsToday(pkg: String) =
@@ -118,6 +160,13 @@ class FocusEnforcer(private val data: Data) {
             override suspend fun isBedtime() = bedtime()
             override suspend fun focus() = focus()
             override suspend fun focusExempt() = exempt()
+            // Resolved from a cache rather than a query, because this is asked on every
+            // app open and the answer is almost always "no group".
+            override suspend fun group(pkg: String) = group(pkg)?.takeIf { it.hasLimits }
+            override suspend fun groupUsageSecondsToday(group: AppGroup) =
+                dao.usageSecondsForGroup(group.members, Time.startOfToday())
+            override suspend fun groupLaunchesToday(group: AppGroup) =
+                dao.launchesForGroup(group.members, Time.startOfToday())
         })
 
     }

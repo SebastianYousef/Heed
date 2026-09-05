@@ -94,6 +94,16 @@ class ScrollWatcherService : AccessibilityService() {
                 restrictToInterestingApps()
             }
         }
+        // A group's scrolling budget applies to members that may have no rule of their
+        // own, so the filter has to know about them for the same reason it has to know
+        // about ruled apps: an app the system filters out is one this service never hears
+        // a scroll from.
+        scope.launch {
+            HeedRepository.get(this@ScrollWatcherService).dao.observeGroups().collect { groups ->
+                groupedPackages = groups.flatMap { it.members }
+                restrictToInterestingApps()
+            }
+        }
         // A focus session blocks apps that have no rule, which means it has to be told
         // about apps the filter would otherwise drop. Re-applied on every change so the
         // wide net exists only while a session is running.
@@ -109,6 +119,7 @@ class ScrollWatcherService : AccessibilityService() {
     }
 
     private var ruledPackages: List<String> = emptyList()
+    private var groupedPackages: List<String> = emptyList()
 
     /**
      * Whether the package filter is currently open to everything.
@@ -130,6 +141,7 @@ class ScrollWatcherService : AccessibilityService() {
         }
         val wanted = buildSet {
             addAll(ruledPackages)
+            addAll(groupedPackages)
             // Known scrollers even without a rule, so measurement can start the moment
             // one is installed rather than after a rule is created for it.
             addAll(KnownScrollers.packages.keys)
@@ -224,6 +236,12 @@ class ScrollWatcherService : AccessibilityService() {
         // coroutine, no query and no allocation. That matters because this runs on every
         // scroll event, which on a fast flick is tens of times a second.
         val repo = repo ?: return
+
+        // Asked before the rule, because a group budget is the one thing here that
+        // applies to an app with no rule at all. Both are hash lookups against a warmed
+        // cache, so the common case — neither — is still two misses and a return.
+        checkGroupBudget(repo, pkg, now)
+
         val rule = repo.cachedRuleFor(pkg) ?: return
 
         val spent = interventionShown || now - lastBlockAt < BLOCK_COOLDOWN_MS
@@ -299,6 +317,30 @@ class ScrollWatcherService : AccessibilityService() {
                     FocusOverlay.bounce(surfacer, stop.headline, stop.detail)
                 }
             }
+        }
+    }
+
+    /**
+     * A group's shared scrolling budget, resolved against disk at most every few seconds.
+     *
+     * Kept apart from the per-app budget rather than merged with it because the two can
+     * both apply and the honest answer is whichever ran out — merging them would mean
+     * reporting one number while enforcing another.
+     */
+    private fun checkGroupBudget(repo: HeedRepository, pkg: String, now: Long) {
+        val group = repo.cachedGroupFor(pkg) ?: return
+        if (ScrollDecision.groupOutcome(pkg, group) !is ScrollDecision.Outcome.NeedsBudgetCheck) {
+            return
+        }
+        if (now - lastGroupBudgetCheck < BUDGET_CHECK_MS) return
+        lastGroupBudgetCheck = now
+        scope.launch {
+            val scrolled = repo.dao.scrollSecondsForGroup(group.members, Time.startOfToday())
+            if (scrolled < group.dailyScrollSeconds) return@launch
+            val stop = ScrollDecision.groupBudgetExhausted(group)
+            interventionShown = true
+            lastBlockAt = System.currentTimeMillis()
+            FocusOverlay.bounce(surfacer, stop.headline, stop.detail)
         }
     }
 
@@ -498,6 +540,7 @@ class ScrollWatcherService : AccessibilityService() {
                 bedtime = { repo.isBedtimeNow() },
                 focus = { repo.focusState() },
                 exempt = { repo.focusExempt() },
+                group = { repo.cachedGroupFor(it) },
             ).onAppOpened(pkg)
             if (verdict is FocusEnforcer.Verdict.Block) {
                 lastBlockAt = System.currentTimeMillis()
@@ -538,6 +581,7 @@ class ScrollWatcherService : AccessibilityService() {
         reset()
         cumulativeScrollMs = 0
         lastBudgetCheck = 0
+        lastGroupBudgetCheck = 0
         eventsSinceBreak = 0
         onFeedSurface = false
         breakShowing = false
@@ -558,6 +602,7 @@ class ScrollWatcherService : AccessibilityService() {
     private var lastBlockAt = 0L
     private var lastPreciseCheck = 0L
     private var lastBudgetCheck = 0L
+    private var lastGroupBudgetCheck = 0L
     private var lastSurfaceBlockAt = 0L
 
     companion object {

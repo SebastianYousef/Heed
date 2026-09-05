@@ -65,6 +65,15 @@ class HeedRepository(private val context: Context) {
      * live here and the hot path becomes a hash lookup with no allocation.
      */
     private val ruleCache = ConcurrentHashMap<String, FocusRule>()
+
+    /**
+     * Which group each app belongs to, keyed by package.
+     *
+     * Keyed by member rather than by group id because every question asked of it on the
+     * hot path is "what applies to this app". Rebuilt whole on any change, which is cheap:
+     * groups are a handful of rows with a handful of members each.
+     */
+    private val groupCache = ConcurrentHashMap<String, io.github.sebastianyousef.heed.focus.AppGroup>()
     private val surfaceCache =
         ConcurrentHashMap<String, List<io.github.sebastianyousef.heed.focus.LearnedSurface>>()
 
@@ -117,6 +126,12 @@ class HeedRepository(private val context: Context) {
             dao.observeFocusRules().collect { rules ->
                 ruleCache.clear()
                 for (r in rules) ruleCache[r.packageName] = r
+            }
+        }
+        scope.launch {
+            dao.observeGroups().collect { groups ->
+                groupCache.clear()
+                for (g in groups) for (pkg in g.members) groupCache[pkg] = g
             }
         }
         scope.launch {
@@ -227,6 +242,42 @@ class HeedRepository(private val context: Context) {
 
     fun cachedRuleFor(pkg: String): FocusRule? = ruleCache[pkg]
 
+    /** The group this app is in, without touching disk. Null for the common case. */
+    fun cachedGroupFor(pkg: String): io.github.sebastianyousef.heed.focus.AppGroup? =
+        groupCache[pkg]
+
+    /** Every package that is in some group, for the accessibility package filter. */
+    fun groupedPackages(): Set<String> = groupCache.keys.toSet()
+
+    /**
+     * Save a group, holding the one-group-per-app invariant.
+     *
+     * Enforced here rather than in the editor because it is a fact about the data, not
+     * about a screen: two groups claiming the same app would make "how much is left" a
+     * question with two answers, and every caller would have to remember to prevent it.
+     * Adding an app to a group therefore takes it out of whichever group had it.
+     */
+    suspend fun saveGroup(group: io.github.sebastianyousef.heed.focus.AppGroup): Long {
+        val claimed = group.members.toSet()
+        if (claimed.isNotEmpty()) {
+            for (other in dao.allGroups()) {
+                if (other.id == group.id) continue
+                val kept = other.members.filterNot { it in claimed }
+                if (kept.size != other.members.size) {
+                    dao.upsertGroup(other.copy(packages = kept.joinToString(",")))
+                }
+            }
+        }
+        val id = dao.upsertGroup(group)
+        syncAttentionService()
+        return id
+    }
+
+    suspend fun deleteGroup(id: Long) {
+        dao.deleteGroup(id)
+        syncAttentionService()
+    }
+
     /**
      * Taught screens for an app, in memory for the same reason the rules are.
      */
@@ -243,6 +294,8 @@ class HeedRepository(private val context: Context) {
     fun anyRuleNeedsForeground(): Boolean =
         cachedSettings.focusStartedAt > 0L || ruleCache.values.any {
             it.grayscale || it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
+        } || groupCache.values.any {
+            it.dailyUsageSeconds > 0 || it.dailyLaunchLimit > 0
         }
 
     suspend fun ensureModelLoaded() {

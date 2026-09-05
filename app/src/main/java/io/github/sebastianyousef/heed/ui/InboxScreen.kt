@@ -1,6 +1,8 @@
 package io.github.sebastianyousef.heed.ui
 
-import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,7 +28,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -63,6 +72,7 @@ fun InboxScreen(
 ) {
     val tab by vm.tab.collectAsState()
     val records by vm.records.collectAsState()
+    val undoable by vm.undoableDeletes.collectAsState()
     val pending by vm.pendingCount.collectAsState()
     val connected by vm.listenerConnected.collectAsState()
 
@@ -81,19 +91,76 @@ fun InboxScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Which notifications are picked out for deletion. Empty means the normal inbox;
+    // anything in it turns the screen into a picker, which is the only state that changes
+    // what a tap does.
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    val selecting = selected.isNotEmpty()
+    BackHandler(enabled = selecting) { selected = emptySet() }
+
+    // Leaving the tab leaves the selection behind: the ids belong to a list that is no
+    // longer on screen, and carrying them across would delete things you cannot see.
+    LaunchedEffect(tab) { selected = emptySet() }
+
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(undoable) {
+        val deleted = undoable
+        if (deleted.isEmpty()) return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            message = if (deleted.size == 1) {
+                "Deleted 1 notification"
+            } else {
+                "Deleted ${deleted.size} notifications"
+            },
+            actionLabel = "Undo",
+            withDismissAction = true,
+        )
+        if (result == SnackbarResult.ActionPerformed) vm.undoDeletes() else vm.deletesConsumed()
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text("Heed") },
-                actions = {
-                    IconButton(onClick = onApps) {
-                        Icon(Icons.Default.Apps, contentDescription = "Per-app rules")
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
-            )
+            if (selecting) {
+                TopAppBar(
+                    title = { Text("${selected.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { selected = emptySet() }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Stop selecting",
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { selected = records.map { it.id }.toSet() }) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select all")
+                        }
+                        IconButton(onClick = {
+                            vm.forgetMany(selected)
+                            selected = emptySet()
+                        }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Heed") },
+                    actions = {
+                        IconButton(onClick = onApps) {
+                            Icon(Icons.Default.Apps, contentDescription = "Per-app rules")
+                        }
+                        IconButton(onClick = onSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    },
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -168,7 +235,26 @@ fun InboxScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(visible, key = { it.id }) { record ->
-                            NotificationCard(record) { onOpen(record.id) }
+                            NotificationCard(
+                                record = record,
+                                selected = record.id in selected,
+                                selecting = selecting,
+                                onClick = {
+                                    // Once one is picked, a tap goes on picking. Opening
+                                    // a notification mid-selection would throw the
+                                    // selection away without saying so.
+                                    if (selecting) {
+                                        selected = if (record.id in selected) {
+                                            selected - record.id
+                                        } else {
+                                            selected + record.id
+                                        }
+                                    } else {
+                                        onOpen(record.id)
+                                    }
+                                },
+                                onLongClick = { selected = selected + record.id },
+                            )
                         }
                     }
                 }
@@ -177,20 +263,43 @@ fun InboxScreen(
     }
 }
 
+/**
+ * One notification, and — held down — the start of picking several.
+ *
+ * Long press rather than swipe, which is the obvious gesture and the wrong one here: the
+ * tabs are a pager, so a horizontal drag on a card is already how you move between
+ * Needed, Filtered and Everything. A swipe-to-delete would win that gesture from the
+ * pager and quietly break tab swiping, and it deletes one row per gesture — where the
+ * thing actually being asked for is clearing out several at once.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NotificationCard(record: NotificationRecord, onClick: () -> Unit) {
+private fun NotificationCard(
+    record: NotificationRecord,
+    selected: Boolean,
+    selecting: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (record.decision == Decision.ALERTED) {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = when {
+                selected -> MaterialTheme.colorScheme.secondaryContainer
+                record.decision == Decision.ALERTED ->
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
             }
         ),
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selecting) {
+                    Checkbox(checked = selected, onCheckedChange = { onClick() })
+                    Spacer(Modifier.width(4.dp))
+                }
                 Text(
                     record.appLabel,
                     style = MaterialTheme.typography.labelMedium,

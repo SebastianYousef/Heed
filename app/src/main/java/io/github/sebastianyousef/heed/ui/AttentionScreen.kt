@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,6 +83,7 @@ fun AttentionScreen(
     vm: InboxViewModel,
     onSettings: () -> Unit,
     onOpenApp: (String) -> Unit,
+    onOpenGroups: () -> Unit,
 ) {
     val context = LocalContext.current
     val rules by vm.focusRules.collectAsState()
@@ -91,6 +93,7 @@ fun AttentionScreen(
     val rows by vm.rangeApps.collectAsState()
     val categories by vm.dayCategories.collectAsState()
     val strandedRules by vm.rulesNeedingScreenAccess.collectAsState()
+    val groups by vm.groups.collectAsState()
     val range by vm.range.collectAsState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -154,6 +157,8 @@ fun AttentionScreen(
                 }
             }
 
+            item { GroupsRow(groups, onOpenGroups) }
+
             if (rows.isNotEmpty()) {
                 item {
                     Text(
@@ -188,6 +193,41 @@ fun AttentionScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The way into shared budgets, as one line rather than a card.
+ *
+ * Groups belong on this screen because this is where you find out that three apps are
+ * really one habit — but they are a control, and this screen is a report. So it gets the
+ * smallest thing that can carry the idea: what exists, and a way in.
+ */
+@Composable
+private fun GroupsRow(groups: List<io.github.sebastianyousef.heed.focus.AppGroup>, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Groups", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    when {
+                        groups.isEmpty() ->
+                            "Put interchangeable apps on one budget"
+                        else -> groups.joinToString { it.name }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

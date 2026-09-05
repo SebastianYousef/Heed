@@ -26,6 +26,10 @@ interface HeedDao {
     @Query("SELECT * FROM notifications WHERE id = :id")
     fun observeOne(id: Long): Flow<NotificationRecord?>
 
+    /** One record, read once — what an undo needs in order to put it back. */
+    @Query("SELECT * FROM notifications WHERE id = :id")
+    suspend fun recordById(id: Long): NotificationRecord?
+
     @Query("SELECT * FROM notifications WHERE sbnKey = :key ORDER BY postedAt DESC LIMIT 1")
     suspend fun findByKey(key: String): NotificationRecord?
 
@@ -489,6 +493,51 @@ interface HeedDao {
     /** How many times this app came to the foreground today. */
     @Query("SELECT COUNT(*) FROM sessions WHERE packageName = :pkg AND startedAt >= :since")
     suspend fun launchesSince(pkg: String, since: Long): Int
+
+    // --- app groups ---
+
+    @Upsert
+    suspend fun upsertGroup(group: io.github.sebastianyousef.heed.focus.AppGroup): Long
+
+    @Query("SELECT * FROM app_groups ORDER BY name")
+    fun observeGroups(): Flow<List<io.github.sebastianyousef.heed.focus.AppGroup>>
+
+    @Query("SELECT * FROM app_groups")
+    suspend fun allGroups(): List<io.github.sebastianyousef.heed.focus.AppGroup>
+
+    @Query("SELECT * FROM app_groups WHERE id = :id")
+    fun observeGroup(id: Long): Flow<io.github.sebastianyousef.heed.focus.AppGroup?>
+
+    @Query("DELETE FROM app_groups WHERE id = :id")
+    suspend fun deleteGroup(id: Long)
+
+    /**
+     * Foreground seconds across a whole group since a moment.
+     *
+     * Aggregated in SQLite over the member list rather than summed per app in Kotlin,
+     * because this is asked on every app open and the difference is one query against an
+     * index versus one query per member.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(durationMs), 0) / 1000 FROM sessions
+        WHERE packageName IN (:packages) AND startedAt >= :since
+        """
+    )
+    suspend fun usageSecondsForGroup(packages: List<String>, since: Long): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM sessions WHERE packageName IN (:packages) AND startedAt >= :since"
+    )
+    suspend fun launchesForGroup(packages: List<String>, since: Long): Int
+
+    @Query(
+        """
+        SELECT COALESCE(SUM(longestBurstMs), 0) / 1000 FROM scroll_spans
+        WHERE packageName IN (:packages) AND startedAt >= :since
+        """
+    )
+    suspend fun scrollSecondsForGroup(packages: List<String>, since: Long): Int
 
     // --- focus sessions ---
 
