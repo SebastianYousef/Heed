@@ -136,6 +136,10 @@ copyright notices stay on. Closed-source redistribution is not permitted.
 
 Copyright © 2026 Sebastian Yousef. See [LICENSE](LICENSE).
 
+## Author
+
+Written and maintained by Sebastian Yousef.
+
 ## Credits
 
 Snapchat's and Instagram's view identifiers were read off a running device with
