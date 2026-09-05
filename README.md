@@ -138,7 +138,8 @@ Copyright © 2026 Sebastian Yousef. See [LICENSE](LICENSE).
 
 ## Author
 
-Written and maintained by Sebastian Yousef.
+Written and maintained by **Sebastian Yousef** ([@SebastianYousef](https://github.com/SebastianYousef)),
+the sole contributor to this project.
 
 ## Credits
 
