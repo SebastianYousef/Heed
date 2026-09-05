@@ -211,7 +211,10 @@ fun UsageChartCard(
                                     .width(9.dp)
                             )
                             Text(
-                                "${Time.duration(slice.ms)} ${slice.label.lowercase()}",
+                                // A category reads as prose ("15m distracting"); a group
+                                // is a name someone chose and keeps its capitals.
+                                "${Time.duration(slice.ms)} " +
+                                    if (slice.argb != null) slice.label else slice.label.lowercase(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = onContainer.copy(alpha = 0.85f),
                             )
