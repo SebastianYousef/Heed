@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One directory, inside the app's own cache. Nothing outside `exports/` is reachable
+  through the provider, so a bug in the sharing code cannot hand out the database.
+-->
+<paths>
+    <cache-path name="exports" path="exports/" />
+</paths>

@@ -1,0 +1,18 @@
+<resources>
+    <!--
+      A window, and nothing else. Everything visible is Compose, so this theme exists only
+      to give the window a background and no title bar before the first frame is drawn —
+      without it the launch flashes the platform default, which on a dark-themed device is
+      a white rectangle.
+
+      DeviceDefault.DayNight rather than a Material Components theme because the app has no
+      AppCompat dependency and does not want one: nothing here inflates a view.
+    -->
+    <style name="Theme.Ply" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">@color/window</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

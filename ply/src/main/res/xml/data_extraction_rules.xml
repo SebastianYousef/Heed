@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing is backed up or transferred. Cloud backup would put a training history and a
+  bodyweight series on Google's servers, which is the one thing an app with no network
+  permission has no business arranging by proxy; device-to-device transfer is excluded
+  with it rather than kept, because a rule that allows one and not the other is a rule
+  nobody can remember the shape of. Export is a deliberate act inside the app instead.
+-->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="false">
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

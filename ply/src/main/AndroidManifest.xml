@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Ply holds what you lift, what you weigh and where you walked. The thing that makes
+      that safe is below: this app has no INTERNET permission, so it cannot open a socket
+      at all. That is not a promise about the code — Android puts a process in the inet
+      group only when the permission is granted, so the kernel refuses the syscall. There
+      is no code path, bug or dependency that can send any of it anywhere.
+
+      The removals are explicit rather than merely absent so that a library added later
+      cannot quietly reintroduce them through manifest merging, and a Gradle task in the
+      Keel convention plugin fails the build if either ever appears in the merged
+      manifest. Both halves matter: the manifest entry stops the merge, and the check
+      catches the day somebody deletes the manifest entry.
+
+      The exercise library — 876 exercises with their instructions — is vendored into the
+      APK rather than fetched, which is what makes this possible. It is public domain, so
+      there is nothing to attribute and nothing to phone home about, and a basement gym
+      with no signal is exactly where the app has to work.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
+    <!--
+      The step counter. A runtime permission, and the only one Ply asks for that it cannot
+      simply do without: refusing it costs the Movement half of the app and nothing else,
+      so it is requested when that half is first opened rather than at first launch.
+    -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
+    <!-- Without this the rest timer can run and can never tell you it finished. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+      TYPE_STEP_COUNTER counts from boot and resets to zero at one, so a reboot is the one
+      event that must never be missed: the steps between the last reading and the restart
+      are gone, and without a reading immediately after boot the reset is not noticed until
+      the next scheduled one. See move/StepReconciler.kt.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+      The rest timer, which has to survive the screen going off. A coroutine in a
+      composable dies with the screen, and a timer that only runs while you are looking at
+      it is not a timer.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!--
+      The alert at zero, as an exact alarm rather than a delay inside the service.
+      A foreground service keeps the process alive but does not keep the CPU awake, so a
+      coroutine counting down through a doze can fire late — and a rest timer that is
+      forty seconds late is worse than no rest timer, because you trusted it.
+
+      USE_EXACT_ALARM rather than SCHEDULE_EXACT_ALARM: it is granted at install with no
+      prompt, and it is restricted to apps whose user-facing purpose is alarms and timers,
+      which is exactly and only what this is used for. Ply sets one alarm, when you start a
+      rest, and cancels it when the rest ends.
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!--
+      Hardware step counting. Declared not required, so the app still installs and its
+      Training half still works on a device without the sensor; the Movement half says
+      plainly that the hardware is missing rather than showing an empty chart.
+    -->
+    <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
+
+    <application
+        android:name=".PlyApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@drawable/ic_ply"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.Ply">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Ply"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".train.RestTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the user's own rest timer between sets and shows it in
+                    the shade, which requires continuing to run while the screen is off." />
+        </service>
+
+        <receiver
+            android:name=".train.RestTimerReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".move.BootReceiver"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".widget.PlyWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ply_widget_info" />
+        </receiver>
+
+        <!--
+          Hands a single export file to the share target you pick, and nothing else. Not
+          exported; access is only ever a per-intent grant to one app for one file. This
+          is the only route data has out of Ply, because there is no network permission
+          and no backup.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+</manifest>

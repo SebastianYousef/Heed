@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon: a bar, loaded. Drawn rather than taken from an icon set so it is
+     ours and carries no attribution. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF1B2340" android:pathData="M0,0h108v108h-108z"/>
+    <path android:fillColor="#FFA8C0F0"
+        android:pathData="M28,45h8v18h-8zM20,49h6v10h-6zM72,45h8v18h-8zM82,49h6v10h-6zM38,50h32v8h-32z"/>
+</vector>

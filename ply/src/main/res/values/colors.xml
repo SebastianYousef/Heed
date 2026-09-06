@@ -1,0 +1,7 @@
+<resources>
+    <!--
+      The launch background, taken from the wallpaper palette so the first frame already
+      belongs to the device rather than being a grey rectangle the app then repaints.
+    -->
+    <color name="window">@android:color/system_neutral1_50</color>
+</resources>

@@ -1,0 +1,105 @@
+package io.github.sebastianyousef.ply.data
+
+import android.content.Context
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * The vendored dataset's own shape, which is not the app's shape.
+ *
+ * Kept as a separate type on purpose. The two will diverge — the app already adds a rest
+ * default, an archive flag and a bodyweight flag that the dataset knows nothing about —
+ * and reading the file straight into the entity would mean every future column had to be
+ * either optional in the JSON or defaulted in the parser.
+ */
+@Serializable
+private data class SeedExercise(
+    val name: String,
+    val force: String? = null,
+    val level: String = "intermediate",
+    val mechanic: String? = null,
+    val equipment: String? = null,
+    val category: String = "strength",
+    @SerialName("primaryMuscles") val primary: List<String> = emptyList(),
+    @SerialName("secondaryMuscles") val secondary: List<String> = emptyList(),
+    val instructions: List<String> = emptyList(),
+)
+
+/**
+ * Copies the exercise library into the database, once.
+ *
+ * Runs on first launch rather than at build time because the alternative — shipping a
+ * prebuilt `.db` in the assets — makes the schema a binary artifact that has to be rebuilt
+ * and re-verified on every migration, and a Room migration against a database nobody can
+ * read the history of is exactly the thing hand-written migrations exist to avoid.
+ *
+ * Insert-or-ignore keyed on the slug, so running it again is harmless and a later dataset
+ * version adds what is new without touching what the user has edited. Deletion is never
+ * part of seeding: a set points at an exercise, and an exercise dropped from the dataset
+ * upstream must not take a year of history's labels with it.
+ */
+object ExerciseSeed {
+
+    /** Raised when the vendored file changes, so a release can re-run the seed. */
+    const val VERSION = 1
+
+    private const val ASSET = "exercises.json"
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    suspend fun seedIfEmpty(context: Context, dao: PlyDao) {
+        if (dao.exerciseCount() > 0) return
+        dao.insertExercises(read(context))
+    }
+
+    private fun read(context: Context): List<Exercise> =
+        parse(context.assets.open(ASSET).bufferedReader().use { it.readText() })
+
+    /**
+     * The parse, separated from the asset it usually comes from.
+     *
+     * So that the vendored file can be run through this on the JVM, as a test, rather than
+     * discovering on a real phone's first launch that one of 876 entries has a field the
+     * parser did not expect. Seeding happens exactly once per install and its failure mode
+     * is an app with an empty exercise library, which is indistinguishable from an app that
+     * is simply broken.
+     */
+    internal fun parse(text: String): List<Exercise> =
+        json.decodeFromString<List<SeedExercise>>(text).map { it.toEntity() }
+
+    private fun SeedExercise.toEntity() = Exercise(
+        id = slug(name),
+        name = name,
+        force = force,
+        level = level,
+        mechanic = mechanic,
+        equipment = equipment,
+        category = category,
+        primaryMuscles = Exercise.join(primary),
+        secondaryMuscles = Exercise.join(secondary),
+        instructions = instructions.joinToString("\n"),
+        // The dataset has no field for this, so it is inferred once at seed time and then
+        // owned by the user. "body only" is right for pull-ups, dips and push-ups, and
+        // wrong for the handful of assisted machines it does not cover — which is why it
+        // is editable rather than computed on every read.
+        bodyweightLoaded = equipment == "body only",
+        seedVersion = VERSION,
+    )
+
+    /**
+     * The dataset's own id scheme: punctuation dropped, spaces and slashes to underscores,
+     * hyphens kept — so "3/4 Sit-Up" becomes `3_4_Sit-Up`, exactly as upstream names it.
+     *
+     * Reimplemented rather than read from the file's `id` field, which was stripped along
+     * with the image references when the asset was vendored. Matching upstream matters for
+     * one reason: it is what lets a later version of the dataset be re-seeded over these
+     * rows in place, updating what shipped instead of orphaning every set that points at
+     * it. A user-created exercise is named by the same rule under a `custom-` prefix.
+     */
+    internal fun slug(name: String): String =
+        name.trim()
+            .replace(Regex("[^A-Za-z0-9 /-]"), "")
+            .replace(Regex("[ /]+"), "_")
+            .trim('_')
+}
