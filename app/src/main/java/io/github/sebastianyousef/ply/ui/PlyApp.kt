@@ -62,13 +62,15 @@ fun PlyApp() {
     var half by rememberSaveable { mutableStateOf(Half.TRAIN) }
     var picking by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
+    var detailOf by rememberSaveable { mutableStateOf<String?>(null) }
 
     // A back press should close whatever is on top before it leaves the app, and a session
     // in progress should never be the thing back exits — losing the screen you are logging
     // into because you pressed back once is the failure this prevents.
-    BackHandler(enabled = picking || settings) {
+    BackHandler(enabled = picking || settings || detailOf != null) {
         picking = false
         settings = false
+        detailOf = null
     }
 
     Scaffold(
@@ -77,7 +79,11 @@ fun PlyApp() {
                 title = {
                     Column {
                         Text(
-                            if (settings) "Settings" else half.label,
+                            when {
+                                settings -> "Settings"
+                                detailOf != null -> "Exercise"
+                                else -> half.label
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -122,6 +128,7 @@ fun PlyApp() {
         Column(Modifier.fillMaxSize().padding(padding)) {
             when {
                 settings -> SettingsScreen(model)
+                detailOf != null -> ExerciseDetail(exerciseId = detailOf.orEmpty())
                 picking -> ExercisePicker(
                     onPick = {
                         model.select(it)
@@ -133,6 +140,7 @@ fun PlyApp() {
                 half == Half.TRAIN -> SessionScreen(
                     model = model,
                     onPickExercise = { picking = true },
+                    onOpenExercise = { detailOf = it },
                     onStartRest = { seconds ->
                         RestTimerService.start(context, seconds, pending.exercise?.name.orEmpty())
                     },

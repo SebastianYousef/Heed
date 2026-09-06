@@ -127,5 +127,21 @@
                 android:resource="@xml/ply_widget_info" />
         </receiver>
 
+        <!--
+          Hands a single export file to the share target you pick, and nothing else. Not
+          exported; access is only ever a per-intent grant to one app for one file. This
+          is the only route data has out of Ply, because there is no network permission
+          and no backup.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 </manifest>

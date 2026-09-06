@@ -6,15 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -189,43 +186,6 @@ fun KeelBarChart(
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
-            }
-        }
-    }
-}
-
-/** The legend, in words. A colour on its own says there is a distinction, not which way round. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun KeelChartLegend(
-    slices: List<ChartSlice>,
-    render: (Float) -> String,
-    modifier: Modifier = Modifier,
-    accent: Color = MaterialTheme.colorScheme.onSurface,
-) {
-    val merged = slices.filter { it.color != null && it.value > 0f }
-        .groupBy { it.label }
-        .map { (label, group) ->
-            ChartSlice(label, group.sumOf { it.value.toDouble() }.toFloat(), group.first().color)
-        }
-        .sortedByDescending { it.value }
-    if (merged.isEmpty()) return
-
-    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        merged.forEach { slice ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .padding(end = 5.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(slice.color ?: accent)
-                        .size(9.dp)
-                )
-                Text(
-                    "${render(slice.value)} ${slice.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent.copy(alpha = 0.85f),
-                )
             }
         }
     }

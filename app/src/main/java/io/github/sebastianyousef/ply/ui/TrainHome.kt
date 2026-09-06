@@ -51,6 +51,7 @@ fun TrainHome(
 ) {
     val history by model.history.collectAsStateWithLifecycle()
     val unit by model.unit.collectAsStateWithLifecycle()
+    val volume by model.weekVolume.collectAsStateWithLifecycle()
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Button(
@@ -83,8 +84,57 @@ fun TrainHome(
         }
 
         LazyColumn {
+            if (volume.isNotEmpty()) {
+                item { GroupHeading("This week, per muscle") }
+                item { VolumeCard(volume, unit) }
+            }
             item { GroupHeading("Recent sessions") }
             items(history, key = { it.id }) { SessionCard(it, unit) }
+        }
+    }
+}
+
+/**
+ * The week's work, per muscle, counted both ways.
+ *
+ * Hard sets is the headline because it is the count training is usually planned in, and
+ * tonnage sits beside it rather than instead of it because the two disagree — a leg day and
+ * an arm day can be identical by the first and tenfold apart by the second. The counting
+ * rule is one tap away rather than assumed, because every app's "volume" means something
+ * different and none of them say which.
+ */
+@Composable
+private fun VolumeCard(volume: List<io.github.sebastianyousef.ply.train.MuscleVolume>, unit: Load.Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            volume.take(8).forEach { muscle ->
+                ValueRow(
+                    muscle.muscle.replaceFirstChar { it.uppercase() },
+                    buildString {
+                        val sets = muscle.hardSets
+                        append(if (sets % 1.0 == 0.0) sets.toInt().toString() else "%.1f".format(sets))
+                        append(if (sets == 1.0) " set · " else " sets · ")
+                        append(Load.format((muscle.tonnageGrams / 1_000).toInt() * 1_000, unit))
+                        append(' ')
+                        append(unit.label)
+                    },
+                )
+            }
+            io.github.sebastianyousef.keel.ui.Explain(
+                short = "How these are counted",
+                detail = "Warm-ups are excluded, because they are not stimulus and counting " +
+                    "them makes a long warm-up look like a hard session. A muscle the " +
+                    "exercise lists as secondary counts as half a set — a bench press is " +
+                    "not zero triceps work and is not a triceps set either, and both tidy " +
+                    "answers are visibly wrong to anyone who trains. Half is a convention " +
+                    "rather than a measurement, which is why it is written here instead of " +
+                    "presented as a fact.",
+            )
         }
     }
 }

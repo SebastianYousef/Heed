@@ -4,7 +4,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 /**
  * Day boundaries and durations, in one place.
@@ -56,10 +55,6 @@ object Time {
      */
     fun startOfWeekFor(millis: Long): Long =
         startOfDay(dateOf(millis).with(java.time.DayOfWeek.MONDAY))
-
-    /** Whole days between the two, by calendar day rather than by elapsed milliseconds. */
-    fun daysBetween(fromMillis: Long, toMillis: Long): Long =
-        ChronoUnit.DAYS.between(dateOf(fromMillis), dateOf(toMillis))
 
     /**
      * "2h 14m", or "14m". Hours matter, seconds do not — nobody has ever changed their

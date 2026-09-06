@@ -99,6 +99,9 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         val here = sets.value.lastOrNull { it.exerciseId == exercise.id && it.kind == SetKind.WORKING }
         val last = open?.let { repository.lastWorkingSet(exercise.id, it.id) }
 
+        // A record announced against the previous exercise has nothing to do with this
+        // one, and leaving it set would attach it to whichever row happened to share an id.
+        _flash.value = null
         _pending.value = Pending(
             exercise = exercise,
             weightGrams = here?.weightGrams ?: last?.weightGrams ?: 0,
@@ -123,11 +126,16 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
      * Records the set on screen. One tap, and this is the only thing that tap does.
      *
      * The RPE is not asked for here and the rest timer is not confirmed here, because both
-     * of those are things that would sit between the person and the record. The timer
-     * starts itself; the RPE is offered on the row afterwards, where ignoring it costs
-     * nothing.
+     * would sit between the person and the record. The timer starts itself; the RPE is
+     * offered on the row afterwards, where ignoring it costs nothing.
+     *
+     * @param onRest called with the rest to start, and **not called at all** when the user
+     *        has turned automatic rest off. Deciding that here rather than in the screen is
+     *        deliberate: the screen would have to read the setting to know, and a caller
+     *        that starts a timer the setting says not to is exactly how a switch comes to
+     *        be displayed, stored, and ignored.
      */
-    fun log(onLogged: (Int) -> Unit = {}) = viewModelScope.launch {
+    fun log(onRest: (Int) -> Unit = {}) = viewModelScope.launch {
         val open = session.value ?: repository.startSession()
         val current = _pending.value
         val exercise = current.exercise ?: return@launch
@@ -146,7 +154,9 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         // leaving the switch on is how the first three working sets get logged as warm-ups.
         _pending.update { it.copy(kind = SetKind.WORKING) }
 
-        onLogged(exercise.restSeconds ?: repository.settings.defaultRestSeconds.first())
+        if (repository.settings.restAutoStart.first()) {
+            onRest(exercise.restSeconds ?: repository.settings.defaultRestSeconds.first())
+        }
     }
 
     fun rate(set: SetWithExercise, rpe: Float?) = viewModelScope.launch {
@@ -156,8 +166,6 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun delete(set: SetWithExercise) = viewModelScope.launch { repository.deleteSet(set.id) }
-
-    fun clearFlash() { _flash.value = null }
 
     private fun MutableStateFlow<Pending>.update(block: (Pending) -> Pending) {
         value = block(value)

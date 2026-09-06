@@ -199,51 +199,6 @@ private fun RepeatingIconButton(
 }
 
 /**
- * How much of a budget is gone, as a bar and as a sentence.
- *
- * Both, deliberately. The bar is what makes "nearly there" visible at a glance; the
- * numbers are what makes it checkable, and a figure you cannot check is one you stop
- * believing the first time it disagrees with you.
- */
-@Composable
-fun KeelMeter(
-    label: String,
-    progress: Float,
-    detail: String,
-    modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.primary,
-    complete: Boolean = progress >= 1f,
-) {
-    Column(modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            Text(
-                detail,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (complete) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (complete) color else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(color)
-            )
-        }
-    }
-}
-
-/**
  * A ring, for the one figure a screen is about.
  *
  * Drawn rather than taken from Material's progress indicator because that one is sized for

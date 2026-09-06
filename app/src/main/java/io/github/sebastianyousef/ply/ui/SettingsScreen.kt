@@ -53,6 +53,8 @@ fun SettingsScreen(
     val rest by model.rest.collectAsStateWithLifecycle()
     val autoRest by model.autoRest.collectAsStateWithLifecycle()
     val goal by model.goal.collectAsStateWithLifecycle()
+    val bodyweight by model.bodyweight.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(
         modifier
@@ -132,6 +134,33 @@ fun SettingsScreen(
             )
         }
 
+        GroupHeading("Bodyweight")
+        Section {
+            SettingRow(
+                title = "Today",
+                subtitle = bodyweight?.let { "${Load.format(it, unit)} ${unit.label}" }
+                    ?: "Not recorded",
+                detail = "Recorded once per day — weighing yourself twice replaces rather " +
+                    "than accumulates, because two kilos between morning and evening is " +
+                    "measurement noise and a chart that plots both makes the noise look " +
+                    "like signal.\n\nIt is also the number that makes a pull-up honest: " +
+                    "for exercises where your own weight is part of the load, Ply stores " +
+                    "what you weighed at the time alongside whatever you added, so a set " +
+                    "done at 78 kg does not become a heavier set when you gain three.",
+            ) {
+                io.github.sebastianyousef.keel.ui.KeelStepper(
+                    value = Load.format(bodyweight ?: 75_000, unit),
+                    unit = unit.label,
+                    onStep = { up ->
+                        model.setBodyweight(
+                            Load.step(bodyweight ?: 75_000, 100, up).coerceAtLeast(20_000)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(0.6f),
+                )
+            }
+        }
+
         GroupHeading("Steps")
         Section {
             Text("Daily goal", style = MaterialTheme.typography.bodyMedium)
@@ -149,6 +178,33 @@ fun SettingsScreen(
                 detail = "The goal in force on a day is stored with that day, so raising " +
                     "it does not turn a month of days you met into days you missed.",
             )
+        }
+
+        GroupHeading("Your data")
+        Section {
+            SettingRow(
+                title = "Export everything",
+                subtitle = "One JSON file you can read",
+                detail = "Ply has no network permission and Android's backup is switched " +
+                    "off, which together mean this is the only way anything leaves the " +
+                    "phone — and that a factory reset without one loses a training " +
+                    "history that cannot be regenerated. Refusing cloud backup without " +
+                    "offering this would not be privacy, it would be data loss with a " +
+                    "principle attached.\n\nJSON rather than the database file, because " +
+                    "the point is that something other than Ply can read it. Weights are " +
+                    "written in grams — the exact stored value — since converting on the " +
+                    "way out means rounding, and rounding a record changes it.",
+            ) {
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = {
+                        model.export { intent ->
+                            context.startActivity(
+                                android.content.Intent.createChooser(intent, "Export Ply data")
+                            )
+                        }
+                    }
+                ) { Text("Export") }
+            }
         }
 
         GroupHeading("What the numbers mean")

@@ -65,19 +65,6 @@ class PlyRepository private constructor(
         dao.updateSession(open.copy(endedAt = System.currentTimeMillis()))
     }
 
-    /**
-     * Throws away a session and everything in it.
-     *
-     * Offered only for a session with no sets, which is the case it exists for: you opened
-     * the app by accident, or started and then did not train. Deleting a session that has
-     * sets in it is not offered anywhere, because there is no undo for it and no copy
-     * anywhere else.
-     */
-    suspend fun discardEmptySession(session: Session) {
-        if (dao.nextPosition(session.id) > 0) return
-        dao.deleteSession(session)
-    }
-
     private fun defaultTitle(now: Long): String = when (Time.hourOf(now)) {
         in 0..10 -> "Morning session"
         in 11..15 -> "Afternoon session"

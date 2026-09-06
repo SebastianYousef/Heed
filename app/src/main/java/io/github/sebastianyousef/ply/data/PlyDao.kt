@@ -121,9 +121,6 @@ interface PlyDao {
     @Update
     suspend fun updateSession(session: Session)
 
-    @Delete
-    suspend fun deleteSession(session: Session)
-
     /**
      * The history list. Aggregated in SQLite rather than by loading every set and folding
      * in Kotlin, which is what the previous app did until its statistics screen was
@@ -271,6 +268,30 @@ interface PlyDao {
 
     @Query("SELECT * FROM measurements WHERE day >= :from ORDER BY day")
     fun measurementsSince(from: Long): Flow<List<Measurement>>
+
+    // ---- Export ----------------------------------------------------------------------
+    //
+    // Deliberately not Flows and deliberately unbounded: an export is a one-off read of
+    // everything, and paging it would only make it possible to produce a partial file that
+    // still looks complete.
+
+    @Query("SELECT * FROM sessions ORDER BY startedAt")
+    suspend fun allSessions(): List<Session>
+
+    @Query("SELECT * FROM sets WHERE sessionId = :sessionId ORDER BY position")
+    suspend fun setsIn(sessionId: Long): List<WorkSet>
+
+    @Query("SELECT * FROM bodyweight ORDER BY day")
+    suspend fun allBodyweight(): List<Bodyweight>
+
+    @Query("SELECT * FROM measurements ORDER BY day")
+    suspend fun allMeasurements(): List<Measurement>
+
+    @Query("SELECT * FROM step_buckets ORDER BY day, hour")
+    suspend fun allStepBuckets(): List<StepBucket>
+
+    @Query("SELECT * FROM exercises WHERE custom = 1 ORDER BY name")
+    suspend fun customExercises(): List<Exercise>
 
     // ---- Steps -----------------------------------------------------------------------
 

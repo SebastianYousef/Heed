@@ -7,7 +7,6 @@ import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -92,13 +91,6 @@ fun KeelTheme(
         )
     }
 }
-
-/**
- * The expressive scheme, for a preview or a screenshot where there is no wallpaper to
- * derive one from. Not used at runtime; see [KeelTheme].
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-internal fun previewScheme(): ColorScheme = expressiveLightColorScheme()
 
 object Keel {
     val semantics: KeelSemantics

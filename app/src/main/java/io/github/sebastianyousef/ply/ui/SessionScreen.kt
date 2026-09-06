@@ -88,6 +88,7 @@ import io.github.sebastianyousef.ply.train.RecordKind
 fun SessionScreen(
     model: SessionViewModel,
     onPickExercise: () -> Unit,
+    onOpenExercise: (String) -> Unit,
     onStartRest: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -105,6 +106,10 @@ fun SessionScreen(
         ExerciseHeader(
             name = pending.exercise?.name.orEmpty(),
             onChange = onPickExercise,
+            // The name itself opens what is known about the exercise: your bests, the
+            // estimate trend, how to load the bar for it, and how to do it. Behind the name
+            // rather than behind a button, because it is the thing you would tap anyway.
+            onOpen = { pending.exercise?.let { onOpenExercise(it.id) } },
         )
 
         LazyColumn(Modifier.weight(1f)) {
@@ -129,7 +134,7 @@ fun SessionScreen(
             onToggleWarmUp = {
                 model.setKind(if (pending.kind == SetKind.WARMUP) SetKind.WORKING else SetKind.WARMUP)
             },
-            onLog = { model.log(onLogged = onStartRest) },
+            onLog = { model.log(onRest = onStartRest) },
         )
     }
 }
@@ -158,7 +163,7 @@ private fun EmptyExercise(onPick: () -> Unit) {
 }
 
 @Composable
-private fun ExerciseHeader(name: String, onChange: () -> Unit) {
+private fun ExerciseHeader(name: String, onChange: () -> Unit, onOpen: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -167,7 +172,7 @@ private fun ExerciseHeader(name: String, onChange: () -> Unit) {
             name,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).clickable { onOpen() },
         )
         TextButton(onChange) {
             Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
