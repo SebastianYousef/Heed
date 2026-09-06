@@ -15,7 +15,7 @@ Two halves, in one app because between them there is always a reason to open it:
 Nothing leaves the device. The app **has no internet permission at all** — not as a promise
 about the code, but as a thing the kernel enforces. See [Privacy](docs/privacy.md).
 
-> **0.1.0.** It builds, 42 tests pass, and most of it has not yet been run on a phone.
+> **0.1.0.** It builds, 54 tests pass, and most of it has not yet been run on a phone.
 > [Status](docs/status.md) is specific about which parts.
 
 ---
@@ -73,6 +73,9 @@ it costs the step counter and nothing else.
 ## Building
 
 Needs **JDK 21** — AGP rejects 26 — and the Android SDK with platform 37.
+
+Run these from the **root of the repository**, one level up from here — Ply is the `:ply`
+module of the [Keel](../README.md) build and has no wrapper of its own.
 
 ```bash
 export JAVA_HOME=/path/to/jdk-21

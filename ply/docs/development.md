@@ -26,7 +26,8 @@ is likely to be what `java` on your path is.
 ```bash
 export JAVA_HOME=/home/linuxbrew/.linuxbrew/opt/openjdk@21
 ./gradlew assembleRelease
-./gradlew testDebugUnitTest       # 42 tests: units, 1RM, records, volume, plates, steps
+./gradlew testDebugUnitTest       # 54 tests: units, 1RM, records, volume, plates,
+                                  # steps, and the plate-inventory parser
 ```
 
 Install to the owner profile only:
