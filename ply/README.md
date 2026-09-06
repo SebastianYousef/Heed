@@ -60,7 +60,7 @@ about the code, but as a thing the kernel enforces. See [Privacy](docs/privacy.m
 Build it (below), then:
 
 ```bash
-adb install -r --user 0 app/build/outputs/apk/release/app-release.apk
+adb install -r --user 0 ply/build/outputs/apk/release/ply-release.apk
 ```
 
 `--user 0` matters. Without it, `adb install` puts a copy in *every* profile including a
@@ -92,9 +92,9 @@ keyboard-free stepper, and day arithmetic. It also owns the build convention plu
 carries the no-network guard — because a guard that holds in one of two apps is worse than
 no guard, since it still reads as a policy.
 
-It is a module rather than a copied folder so the day it moves into a repository of its own,
-nothing but the settings file changes. [Heed](https://github.com/SebastianYousef/Heed) is
-the intended second consumer and has not been ported yet.
+Keel lives at the root of this repository, one level up from Ply. [Heed](../heed/) is the
+second consumer and is not ported yet — it still carries its own copies of the theme, the
+chart and the disclosure components, and its own Gradle build to go with them.
 
 ## Read further
 
@@ -113,7 +113,7 @@ GPL-3.0-or-later. You are free to use, study, change and share it; if you distri
 anything built on it, that has to come with source under the same licence, and the copyright
 notices stay on. Closed-source redistribution is not permitted.
 
-Copyright © 2026 Sebastian Yousef. See [LICENSE](LICENSE).
+Copyright © 2026 Sebastian Yousef. See [LICENSE](../LICENSE).
 
 ## Author
 

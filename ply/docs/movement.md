@@ -16,7 +16,7 @@ has lives in the gap between them.
 
 ## The reconciliation
 
-[`StepReconciler`](../app/src/main/java/io/github/sebastianyousef/ply/move/StepReconciler.kt)
+[`StepReconciler`](../src/main/java/io/github/sebastianyousef/ply/move/StepReconciler.kt)
 is a pure function over explicit state, so every one of those cases is tested without
 rebooting anything.
 
@@ -60,7 +60,7 @@ one bucket.
 
 **A reboot loses the steps since the last read.** They are gone once the device is off;
 nothing holds them. The fifteen-minute period bounds that loss, and
-[`BootReceiver`](../app/src/main/java/io/github/sebastianyousef/ply/move/BootReceiver.kt)
+[`BootReceiver`](../src/main/java/io/github/sebastianyousef/ply/move/BootReceiver.kt)
 closes it from the other side by reading immediately on restart.
 
 If the smearing turns out to matter in practice, the fix is a batched listener registered

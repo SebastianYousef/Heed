@@ -5,7 +5,8 @@
 ```
 build-logic/    the convention plugins: shared Android config, signing, the no-network guard
 keel/           the shared base — theme, disclosure, chart, stepper, day arithmetic
-app/
+heed/           the other app in this repository, not yet built on the base
+ply/            this app, as the :ply module
   data/         Room entities, DAO, repository, settings, exercise seeding
   train/        weights, 1RM, records, volume, plates, the rest timer service
   move/         step sensor, reconciler, worker, boot receiver
@@ -13,8 +14,9 @@ app/
   widget/       Glance home-screen widget
 ```
 
-`keel` is a module rather than a copied folder so that the day it moves into a repository of
-its own — or one grows around it — nothing but `settings.gradle.kts` changes.
+`keel` was a module rather than a copied folder so that the day a repository grew around it,
+nothing but `settings.gradle.kts` would change. That day has come: this is the Keel
+repository, and Ply is one of two apps in it.
 
 ## Build
 
@@ -30,7 +32,7 @@ export JAVA_HOME=/home/linuxbrew/.linuxbrew/opt/openjdk@21
 Install to the owner profile only:
 
 ```bash
-adb install -r --user 0 app/build/outputs/apk/release/app-release.apk
+adb install -r --user 0 ply/build/outputs/apk/release/ply-release.apk
 ```
 
 Without `--user 0`, `adb install` puts a copy in *every* profile including a private space.
@@ -66,7 +68,7 @@ tolerates a few accumulates a screenful nobody reads.
 
 ## Room
 
-`exportSchema` is on and `app/schemas/` is committed, so a migration can be reviewed against
+`exportSchema` is on and `ply/schemas/` is committed, so a migration can be reviewed against
 the shape it actually produced rather than the shape its author believed it produced.
 `fallbackToDestructiveMigration` is not used and will not be: a training history cannot be
 regenerated, there is no copy anywhere, and a year of it represents a year of turning up.

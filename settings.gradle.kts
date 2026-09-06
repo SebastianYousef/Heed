@@ -22,9 +22,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "Ply"
 
-// The shared base. A module rather than a copied folder, so that the day it moves into a
-// repository of its own — or a repository of its own grows around it — nothing but the
-// settings file changes.
+// The shared base. Consumed by :ply today and by :heed once that app is ported onto it;
+// keeping one implementation of the chart, the theme and the disclosure components is the
+// entire reason this module exists.
 include(":keel")
 
-include(":app")
+include(":ply")
