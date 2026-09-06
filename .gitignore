@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild
+.cxx
+*.apk
+
+# Signing keys for release builds. Never committed: anyone holding one can publish an
+# update that Android will install over the app without warning. Back them up somewhere
+# safe — losing a key means no future release can update an existing install in place,
+# and on Accrescent it means the listing cannot be updated at all.
+*.jks
+keystore.properties
