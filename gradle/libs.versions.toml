@@ -3,15 +3,15 @@
 
 [versions]
 agp = "9.4.0"
-kotlin = "2.2.21"
-ksp = "2.2.21-2.0.5"
+kotlin = "2.3.21"
+ksp = "2.3.11"
 
 # The floor. Android 13 rather than anything older, because everything below it costs a
 # conditional branch that would never run on a device anybody reading this owns: dynamic
 # colour is unconditional from 31, POST_NOTIFICATIONS is a runtime permission from 33, and
 # the photo picker and per-app language APIs land there too. See docs/decisions.md.
 minSdk = "33"
-compileSdk = "36"
+compileSdk = "37"
 targetSdk = "36"
 
 coreKtx = "1.19.0"
