@@ -63,14 +63,20 @@ fun PlyApp() {
     var picking by rememberSaveable { mutableStateOf(false) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var detailOf by rememberSaveable { mutableStateOf<String?>(null) }
+    var routines by rememberSaveable { mutableStateOf(false) }
+    // What the picker is picking *for*. A single picker screen serving two callers, because
+    // two copies of a searchable list of 876 things is two copies that drift.
+    var pickingForRoutine by rememberSaveable { mutableStateOf(false) }
+    val routineModel: RoutineViewModel = viewModel()
 
     // A back press should close whatever is on top before it leaves the app, and a session
     // in progress should never be the thing back exits — losing the screen you are logging
     // into because you pressed back once is the failure this prevents.
-    BackHandler(enabled = picking || settings || detailOf != null) {
+    BackHandler(enabled = picking || settings || detailOf != null || routines) {
         picking = false
         settings = false
         detailOf = null
+        if (!picking && !settings && detailOf == null) routines = false
     }
 
     Scaffold(
@@ -82,6 +88,7 @@ fun PlyApp() {
                             when {
                                 settings -> "Settings"
                                 detailOf != null -> "Exercise"
+                                routines -> "Routines"
                                 else -> half.label
                             },
                             style = MaterialTheme.typography.titleLarge,
@@ -130,13 +137,27 @@ fun PlyApp() {
                 settings -> SettingsScreen(model)
                 detailOf != null -> ExerciseDetail(exerciseId = detailOf.orEmpty())
                 picking -> ExercisePicker(
-                    onPick = {
-                        model.select(it)
+                    onPick = { exercise ->
+                        if (pickingForRoutine) routineModel.add(exercise) else model.select(exercise)
                         picking = false
+                        pickingForRoutine = false
                     },
-                    onDismiss = { picking = false },
                 )
-                half == Half.TRAIN && session == null -> TrainHome(onStart = { model.start() })
+                routines -> RoutineScreen(
+                    model = routineModel,
+                    onAddExercise = {
+                        pickingForRoutine = true
+                        picking = true
+                    },
+                    onStart = { routineId ->
+                        model.start(routineId)
+                        routines = false
+                    },
+                )
+                half == Half.TRAIN && session == null -> TrainHome(
+                    onStart = { model.start() },
+                    onRoutines = { routines = true },
+                )
                 half == Half.TRAIN -> SessionScreen(
                     model = model,
                     onPickExercise = { picking = true },

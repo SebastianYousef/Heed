@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
@@ -96,8 +99,19 @@ fun SessionScreen(
     val logged by model.setsForCurrent.collectAsStateWithLifecycle()
     val unit by model.unit.collectAsStateWithLifecycle()
     val flash by model.flash.collectAsStateWithLifecycle()
+    val plan by model.plan.collectAsStateWithLifecycle()
+    val allSets by model.sets.collectAsStateWithLifecycle()
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        if (plan.isNotEmpty()) {
+            PlanStrip(
+                plan = plan,
+                doneFor = { id -> allSets.count { it.exerciseId == id && it.kind == SetKind.WORKING } },
+                currentId = pending.exercise?.id,
+                onSelect = { model.selectPlanned(it) },
+            )
+        }
+
         if (pending.exercise == null) {
             EmptyExercise(onPickExercise)
             return@Column
@@ -136,6 +150,43 @@ fun SessionScreen(
             },
             onLog = { model.log(onRest = onStartRest) },
         )
+    }
+}
+
+/**
+ * The routine, as a row you can move along — and skip about in.
+ *
+ * It shows how many working sets each planned exercise has, against how many were asked
+ * for, and it never blocks anything: an exercise not in the plan can still be logged, one
+ * in it can be left at zero, and the strip simply reports what happened. There is no
+ * "off plan" state because there is no state a plan can put you in.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlanStrip(
+    plan: List<io.github.sebastianyousef.ply.data.PlannedRow>,
+    doneFor: (String) -> Int,
+    currentId: String?,
+    onSelect: (io.github.sebastianyousef.ply.data.PlannedRow) -> Unit,
+) {
+    FlowRow(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        plan.forEach { planned ->
+            val done = doneFor(planned.item.exerciseId)
+            val complete = done >= planned.item.targetSets
+            FilterChip(
+                selected = planned.item.exerciseId == currentId,
+                onClick = { onSelect(planned) },
+                label = { Text("${planned.exerciseName}  $done/${planned.item.targetSets}") },
+                leadingIcon = if (complete) {
+                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                } else {
+                    null
+                },
+            )
+        }
     }
 }
 
@@ -304,6 +355,23 @@ private fun LogControls(
                     unit = "reps",
                     onStep = onStepReps,
                     modifier = Modifier.weight(1f),
+                )
+            }
+
+            AnimatedVisibility(pending.target != null) {
+                Text(
+                    pending.target?.let { target ->
+                        buildString {
+                            append("Planned: ")
+                            append(target.targetSets)
+                            append(" × ")
+                            append(target.targetReps?.toString() ?: "—")
+                            target.targetRepsMax?.let { append("–$it") }
+                        }
+                    }.orEmpty(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                 )
             }
 

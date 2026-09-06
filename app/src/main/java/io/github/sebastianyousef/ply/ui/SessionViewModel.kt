@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.sebastianyousef.ply.data.Exercise
 import io.github.sebastianyousef.ply.data.PlyRepository
+import io.github.sebastianyousef.ply.data.PlannedRow
 import io.github.sebastianyousef.ply.data.RoutineItem
 import io.github.sebastianyousef.ply.data.Session
 import io.github.sebastianyousef.ply.data.SetKind
@@ -68,6 +69,19 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     val increment: StateFlow<Int> = repository.settings.increment
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 2_500)
 
+    /**
+     * The routine this session was started from, if any, with its exercises resolved.
+     *
+     * Empty for a freeform session, which is the common case and costs nothing to
+     * represent — the screen simply has no plan strip.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val plan: StateFlow<List<PlannedRow>> = session
+        .flatMapLatest { open ->
+            open?.routineId?.let { repository.dao.plannedFor(it) } ?: flowOf(emptyList<PlannedRow>())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Sets already logged for whatever exercise is on screen, in order. */
     val setsForCurrent: StateFlow<List<SetWithExercise>> =
         combine(sets, _pending) { all, current ->
@@ -98,16 +112,25 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         val open = session.value
         val here = sets.value.lastOrNull { it.exerciseId == exercise.id && it.kind == SetKind.WORKING }
         val last = open?.let { repository.lastWorkingSet(exercise.id, it.id) }
+        val target = plan.value.firstOrNull { it.item.exerciseId == exercise.id }?.item
 
         // A record announced against the previous exercise has nothing to do with this
         // one, and leaving it set would attach it to whichever row happened to share an id.
         _flash.value = null
         _pending.value = Pending(
             exercise = exercise,
-            weightGrams = here?.weightGrams ?: last?.weightGrams ?: 0,
-            reps = here?.reps ?: last?.reps ?: 8,
+            // Most specific first. What you have already done here beats the plan, because
+            // the plan was written before you found out what today felt like.
+            weightGrams = here?.weightGrams ?: target?.targetWeightGrams ?: last?.weightGrams ?: 0,
+            reps = here?.reps ?: target?.targetReps ?: last?.reps ?: 8,
             previous = last?.let { "${Load.format(it.weightGrams, unit.value)} × ${it.reps}" },
+            target = target,
         )
+    }
+
+    /** Selects a planned exercise from the plan strip, resolving the row to its exercise. */
+    fun selectPlanned(row: PlannedRow) = viewModelScope.launch {
+        repository.dao.exercise(row.item.exerciseId)?.let { select(it) }
     }
 
     fun stepWeight(up: Boolean) = _pending.update {

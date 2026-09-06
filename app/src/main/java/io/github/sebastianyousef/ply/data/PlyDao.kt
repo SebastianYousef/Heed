@@ -225,11 +225,22 @@ interface PlyDao {
     @Query("SELECT * FROM routines ORDER BY position, name")
     fun routines(): Flow<List<Routine>>
 
-    @Query("SELECT * FROM routine_items WHERE routineId = :routineId ORDER BY position")
-    suspend fun routineItems(routineId: Long): List<RoutineItem>
-
-    @Query("SELECT * FROM routine_items WHERE routineId = :routineId ORDER BY position")
-    fun routineItemsFlow(routineId: Long): Flow<List<RoutineItem>>
+    /**
+     * A routine's exercises with their names already attached.
+     *
+     * Joined in SQL rather than looked up one at a time in Kotlin, because the alternative
+     * is a query per item on every emission — six queries to redraw a six-exercise plan,
+     * repeated every time any set in the session changes.
+     */
+    @Query(
+        """
+        SELECT r.*, e.name AS exerciseName, e.bodyweightLoaded AS bodyweightLoaded
+        FROM routine_items r JOIN exercises e ON e.id = r.exerciseId
+        WHERE r.routineId = :routineId
+        ORDER BY r.position
+        """
+    )
+    fun plannedFor(routineId: Long): Flow<List<PlannedRow>>
 
     @Insert
     suspend fun insertRoutine(routine: Routine): Long
@@ -351,3 +362,10 @@ interface PlyDao {
 
 /** One hour of a day's shape. */
 data class HourSteps(val hour: Int, val steps: Int)
+
+/** A routine item with the two exercise fields any screen showing one needs. */
+data class PlannedRow(
+    @androidx.room.Embedded val item: RoutineItem,
+    val exerciseName: String,
+    val bodyweightLoaded: Boolean,
+)

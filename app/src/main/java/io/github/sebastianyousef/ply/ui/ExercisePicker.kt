@@ -49,7 +49,6 @@ import io.github.sebastianyousef.ply.data.Exercise
 @Composable
 fun ExercisePicker(
     onPick: (Exercise) -> Unit,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     model: LibraryViewModel = viewModel(),
 ) {

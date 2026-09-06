@@ -46,6 +46,7 @@ import io.github.sebastianyousef.ply.train.Load
 @Composable
 fun TrainHome(
     onStart: () -> Unit,
+    onRoutines: () -> Unit,
     modifier: Modifier = Modifier,
     model: HistoryViewModel = viewModel(),
 ) {
@@ -67,6 +68,11 @@ fun TrainHome(
                 fontWeight = FontWeight.SemiBold,
             )
         }
+
+        androidx.compose.material3.OutlinedButton(
+            onClick = onRoutines,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        ) { Text("Start from a routine") }
 
         if (history.isEmpty()) {
             Column(
