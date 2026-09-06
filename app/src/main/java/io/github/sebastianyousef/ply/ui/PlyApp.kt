@@ -134,7 +134,7 @@ fun PlyApp() {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             when {
-                settings -> SettingsScreen(model)
+                settings -> SettingsScreen()
                 detailOf != null -> ExerciseDetail(exerciseId = detailOf.orEmpty())
                 picking -> ExercisePicker(
                     onPick = { exercise ->

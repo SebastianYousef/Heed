@@ -3,6 +3,8 @@ package io.github.sebastianyousef.ply
 import android.app.Application
 import io.github.sebastianyousef.ply.data.ExerciseSeed
 import io.github.sebastianyousef.ply.data.PlyRepository
+import io.github.sebastianyousef.ply.move.StepSensor
+import io.github.sebastianyousef.ply.move.StepWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,5 +25,12 @@ class PlyApplication : Application() {
             val repository = PlyRepository.get(this@PlyApplication)
             ExerciseSeed.seedIfEmpty(this@PlyApplication, repository.dao)
         }
+
+        // Without this, step collection began only after a reboot or an app update — the
+        // boot receiver was the sole caller, so a fresh install counted nothing at all
+        // until the phone was next restarted, and it would have looked exactly like a
+        // sensor that does not work. Enqueued as unique work with KEEP, so calling it on
+        // every launch does not reset the period and postpone the next read forever.
+        if (StepSensor.permitted(this)) StepWorker.schedule(this)
     }
 }

@@ -50,9 +50,10 @@ it is rare, which is the right place to put the cost.
 dialog asking whether you meant it charges a tap on every set to save one on the rare
 wrong one, and the row is one tap to delete.
 
-**RPE.** It is offered on the row *after* the set exists, not in the entry controls. A
-field between a person and the log button is a field that stops them logging. Afterwards,
-ignoring it forever costs nothing.
+**RPE.** It is offered on the row *after* the set exists, not in the entry controls, and
+only when you tap the "RPE" label on that row. A field between a person and the log button
+is a field that stops them logging. Afterwards, ignoring it forever costs nothing — and it
+costs two taps when you do want it, which is the right way round.
 
 **The rest timer prompt.** It starts itself. "Start a timer?" after every set is a second
 tap on every set to serve the minority of sets you did not want one for; the switch to turn

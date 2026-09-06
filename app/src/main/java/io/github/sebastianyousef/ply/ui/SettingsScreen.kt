@@ -44,7 +44,6 @@ import io.github.sebastianyousef.ply.train.Volume
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
-    session: SessionViewModel,
     modifier: Modifier = Modifier,
     model: SettingsViewModel = viewModel(),
 ) {

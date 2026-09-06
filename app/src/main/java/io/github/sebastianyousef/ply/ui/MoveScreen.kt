@@ -60,7 +60,12 @@ fun MoveScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         model.refreshPermission()
-        if (granted) StepWorker.readNow(context)
+        if (granted) {
+            // Both: schedule the repeat, and take one reading now rather than leaving the
+            // screen empty for fifteen minutes after the user just said yes.
+            StepWorker.schedule(context)
+            StepWorker.readNow(context)
+        }
     }
 
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {

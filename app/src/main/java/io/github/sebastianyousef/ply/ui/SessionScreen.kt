@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -127,11 +130,14 @@ fun SessionScreen(
         )
 
         LazyColumn(Modifier.weight(1f)) {
-            items(logged, key = { it.id }) { set ->
+            itemsIndexed(logged, key = { _, set -> set.id }) { position, set ->
                 LoggedRow(
                     set = set,
                     unit = unit,
-                    index = logged.indexOf(set) + 1,
+                    // Working sets are numbered among themselves. Counting warm-ups would
+                    // make the first real set of a session read as the third, and the
+                    // number on the button below disagree with the number on the row.
+                    index = logged.take(position + 1).count { it.kind == SetKind.WORKING },
                     records = flash?.takeIf { it.setId == set.id }?.records.orEmpty(),
                     onDelete = { model.delete(set) },
                     onRate = { model.rate(set, it) },
@@ -142,7 +148,7 @@ fun SessionScreen(
         LogControls(
             pending = pending,
             unit = unit,
-            setNumber = logged.size + 1,
+            setNumber = logged.count { it.kind == SetKind.WORKING } + 1,
             onStepWeight = model::stepWeight,
             onStepReps = model::stepReps,
             onToggleWarmUp = {
@@ -251,6 +257,10 @@ private fun LoggedRow(
     onRate: (Float?) -> Unit,
 ) {
     val warmUp = set.kind == SetKind.WARMUP
+    var rating by rememberSaveable(set.id) { mutableStateOf(false) }
+    val onToggleRating = { rating = !rating }
+
+    Column {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -302,14 +312,20 @@ private fun LoggedRow(
                 }
             }
         }
-        set.rpe?.let {
-            Text(
-                "RPE ${Load.format((it * 1000).toInt(), Load.Unit.KG)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(8.dp))
-        }
+        Text(
+            set.rpe?.let { "RPE ${rpeLabel(it)}" } ?: "RPE",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (set.rpe == null) {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onToggleRating() }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+        Spacer(Modifier.width(6.dp))
         Icon(
             Icons.Default.Close,
             contentDescription = "Delete this set",
@@ -317,7 +333,40 @@ private fun LoggedRow(
             modifier = Modifier.size(18.dp).clickable { onDelete() },
         )
     }
+
+    // Only once the set exists, and only when asked for. This is the whole reason RPE can
+    // be in the app at all: asked before the set it would be a field standing between a
+    // person and the log button, and offered here it is something you can ignore forever
+    // at no cost.
+    AnimatedVisibility(rating) {
+        FlowRow(
+            Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            RPE_VALUES.forEach { value ->
+                FilterChip(
+                    selected = set.rpe == value,
+                    onClick = { onRate(if (set.rpe == value) null else value) },
+                    label = { Text(rpeLabel(value)) },
+                )
+            }
+        }
+    }
+    }
 }
+
+/** "8" or "8.5" — a rating is in halves, and a trailing .0 is noise in a row of them. */
+private fun rpeLabel(value: Float): String =
+    if (value % 1f == 0f) value.toInt().toString() else value.toString()
+
+/**
+ * Six to ten, in halves.
+ *
+ * Below six is not a rating anybody makes a decision from — it means the set was easy —
+ * and above ten does not exist. Halves because the distinction people actually draw is
+ * between "could have done two more" and "maybe one and a half", and whole numbers lose it.
+ */
+private val RPE_VALUES = listOf(6f, 6.5f, 7f, 7.5f, 8f, 8.5f, 9f, 9.5f, 10f)
 
 /** Which record, in words. A trophy that does not say what it means is one you ignore. */
 private fun RecordKind.phrase(): String = when (this) {
