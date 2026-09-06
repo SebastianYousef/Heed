@@ -53,10 +53,20 @@ object ExerciseSeed {
         dao.insertExercises(read(context))
     }
 
-    internal fun read(context: Context): List<Exercise> {
-        val text = context.assets.open(ASSET).bufferedReader().use { it.readText() }
-        return json.decodeFromString<List<SeedExercise>>(text).map { it.toEntity() }
-    }
+    private fun read(context: Context): List<Exercise> =
+        parse(context.assets.open(ASSET).bufferedReader().use { it.readText() })
+
+    /**
+     * The parse, separated from the asset it usually comes from.
+     *
+     * So that the vendored file can be run through this on the JVM, as a test, rather than
+     * discovering on a real phone's first launch that one of 876 entries has a field the
+     * parser did not expect. Seeding happens exactly once per install and its failure mode
+     * is an app with an empty exercise library, which is indistinguishable from an app that
+     * is simply broken.
+     */
+    internal fun parse(text: String): List<Exercise> =
+        json.decodeFromString<List<SeedExercise>>(text).map { it.toEntity() }
 
     private fun SeedExercise.toEntity() = Exercise(
         id = slug(name),
@@ -78,15 +88,18 @@ object ExerciseSeed {
     )
 
     /**
-     * The dataset's own id scheme: the name, punctuation dropped, spaces to underscores.
+     * The dataset's own id scheme: punctuation dropped, spaces and slashes to underscores,
+     * hyphens kept — so "3/4 Sit-Up" becomes `3_4_Sit-Up`, exactly as upstream names it.
      *
-     * Reimplemented rather than read from the file's `id` field so that a user-created
-     * exercise and a shipped one are named by the same rule — and because the field was
-     * stripped along with the image references when the asset was vendored.
+     * Reimplemented rather than read from the file's `id` field, which was stripped along
+     * with the image references when the asset was vendored. Matching upstream matters for
+     * one reason: it is what lets a later version of the dataset be re-seeded over these
+     * rows in place, updating what shipped instead of orphaning every set that points at
+     * it. A user-created exercise is named by the same rule under a `custom-` prefix.
      */
     internal fun slug(name: String): String =
         name.trim()
             .replace(Regex("[^A-Za-z0-9 /-]"), "")
-            .replace(Regex("[ /-]+"), "_")
+            .replace(Regex("[ /]+"), "_")
             .trim('_')
 }

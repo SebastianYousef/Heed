@@ -9,8 +9,14 @@ has met a real phone.
 - The merged manifest contains **no** `INTERNET` and no `ACCESS_NETWORK_STATE`, confirmed by
   dumping permissions out of the built APK rather than by reading the source manifest.
 - The no-network Gradle guard runs as part of `assemble` and reports zero findings.
-- 47 unit tests pass over units, 1RM estimation, record detection, volume aggregation, plate
+- 54 unit tests pass over units, 1RM estimation, record detection, volume aggregation, plate
   loading, step reconciliation and the plate-inventory parser.
+- **The whole vendored exercise library parses**, run through the real parser on the JVM:
+  876 entries, every one with an id, a name and at least one primary muscle, no duplicate
+  ids, no muscle outside the seventeen the picker filters on, and instructions intact on
+  more than 850 of them. This was previously the first item under "not verified" — seeding
+  happens once, on a phone, and its failure mode is an empty library that looks exactly like
+  a broken app.
 - The device has the hardware sensors this depends on: `android.sensor.step_counter` and
   `step_detector`, both `ACTIVITY_RECOGNITION`-gated, on a Pixel 10 running GrapheneOS
   (Android 17, SDK 37). A pre-existing pedometer was observed holding the counter with a
@@ -21,9 +27,9 @@ has met a real phone.
 Everything in this section is written but has not been run on a device. The phone
 disconnected from adb before the first install completed.
 
-1. **First launch and the exercise seed.** 876 rows inserted from the asset on first run.
-   Nothing has confirmed the parse succeeds against the real file, how long the insert
-   takes, or that the picker is populated afterwards.
+1. **The insert itself.** The parse is now covered by a test; what is not is how long
+   inserting 876 rows takes on the device on first launch, and whether anything on screen
+   accounts for that wait.
 2. **The logging screen end to end.** The tap count in [logging.md](logging.md) is a claim
    about a design, not a measurement of a build.
    Also unverified: the exercise detail screen, the weekly volume card, the bodyweight
