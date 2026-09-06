@@ -60,6 +60,35 @@ class PlyRepository private constructor(
         return Session(id = id, startedAt = now, routineId = routineId, title = name)
     }
 
+    /**
+     * Starts a session laid out like one you already did.
+     *
+     * The case a saved routine does not cover, and the more common one: you want to do
+     * Monday again, and Monday was never written down as a plan. Rather than making you
+     * create a routine after the fact, the exercises of that session become this one's
+     * plan — and because the weights are prefilled from what you last did on each of them,
+     * repeating a workout is mostly pressing Log.
+     *
+     * It copies the exercises, never the sets. A session records what happened; seeding a
+     * new one with somebody else's numbers already logged would be a record of something
+     * that did not.
+     */
+    suspend fun repeatSession(sessionId: Long): Session? {
+        val previous = dao.allSessions().firstOrNull { it.id == sessionId } ?: return null
+        val exercises = dao.exercisesIn(sessionId)
+        if (exercises.isEmpty()) return null
+
+        val routineId = dao.insertRoutine(
+            Routine(name = previous.title, createdAt = System.currentTimeMillis())
+        )
+        exercises.forEachIndexed { index, exerciseId ->
+            dao.upsertRoutineItem(
+                RoutineItem(routineId = routineId, exerciseId = exerciseId, position = index)
+            )
+        }
+        return startSession(routineId = routineId, title = previous.title)
+    }
+
     suspend fun endSession() {
         val open = dao.openSessionNow() ?: return
         dao.updateSession(open.copy(endedAt = System.currentTimeMillis()))

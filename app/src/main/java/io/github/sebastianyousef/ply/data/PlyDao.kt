@@ -220,6 +220,15 @@ interface PlyDao {
     )
     fun volumeRows(from: Long, to: Long): Flow<List<VolumeRow>>
 
+    /** The distinct exercises of a past session, in the order they were first done. */
+    @Query(
+        """
+        SELECT exerciseId FROM sets WHERE sessionId = :sessionId
+        GROUP BY exerciseId ORDER BY MIN(position)
+        """
+    )
+    suspend fun exercisesIn(sessionId: Long): List<String>
+
     // ---- Routines --------------------------------------------------------------------
 
     @Query("SELECT * FROM routines ORDER BY position, name")

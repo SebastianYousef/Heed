@@ -1,6 +1,10 @@
 package io.github.sebastianyousef.ply.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +51,12 @@ import io.github.sebastianyousef.ply.train.RestTimerService
  * worth opening is the day you did — so between them there is always a reason, and neither
  * on its own has one every day.
  */
+private fun notificationsGranted(context: android.content.Context): Boolean =
+    androidx.core.content.ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.POST_NOTIFICATIONS,
+    ) == PackageManager.PERMISSION_GRANTED
+
 private enum class Half(val label: String) {
     TRAIN("Training"),
     MOVE("Movement"),
@@ -68,6 +79,30 @@ fun PlyApp() {
     // two copies of a searchable list of 876 things is two copies that drift.
     var pickingForRoutine by rememberSaveable { mutableStateOf(false) }
     val routineModel: RoutineViewModel = viewModel()
+
+    /**
+     * Whether Ply may post the rest timer.
+     *
+     * The timer is a foreground service, so it runs whether or not this is granted — the
+     * countdown simply becomes invisible, which is indistinguishable from a timer that
+     * does not work. It is the only notification Ply ever posts.
+     *
+     * Asked for when a session starts rather than at first launch: before the app has
+     * shown what a notification would be *for*, the prompt is one people refuse, and
+     * refusing it permanently is worse than asking a moment later. Not asked on the
+     * logging screen itself, because a system dialog between a person and the log button
+     * is exactly what that screen is arranged to avoid.
+     */
+    var notificationsAllowed by remember { mutableStateOf(notificationsGranted(context)) }
+    val askNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { notificationsAllowed = notificationsGranted(context) }
+
+    LaunchedEffect(session?.id) {
+        if (session != null && !notificationsAllowed) {
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // A back press should close whatever is on top before it leaves the app, and a session
     // in progress should never be the thing back exits — losing the screen you are logging
@@ -157,6 +192,7 @@ fun PlyApp() {
                 half == Half.TRAIN && session == null -> TrainHome(
                     onStart = { model.start() },
                     onRoutines = { routines = true },
+                    onRepeat = { model.repeat(it) },
                 )
                 half == Half.TRAIN -> SessionScreen(
                     model = model,
@@ -164,6 +200,10 @@ fun PlyApp() {
                     onOpenExercise = { detailOf = it },
                     onStartRest = { seconds ->
                         RestTimerService.start(context, seconds, pending.exercise?.name.orEmpty())
+                    },
+                    restTimerMuted = !notificationsAllowed,
+                    onFixRestTimer = {
+                        askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                     },
                 )
                 else -> MoveScreen()

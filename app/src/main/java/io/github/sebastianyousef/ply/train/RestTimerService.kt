@@ -130,7 +130,7 @@ class RestTimerService : Service() {
             .build()
 
     private fun base(channel: String) = NotificationCompat.Builder(this, channel)
-        .setSmallIcon(R.drawable.ic_ply)
+        .setSmallIcon(R.drawable.ic_notification)
         .setOngoing(true)
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -171,11 +171,31 @@ class RestTimerService : Service() {
      *
      * A running timer must never make a sound — it would go off every time it was updated.
      * The one at zero must, and it is the only notification this app ever raises.
+     *
+     * The running channel is DEFAULT importance rather than LOW, with silence set on the
+     * notification instead. That looks like the wrong way round and is not: LOW ranks the
+     * notification into the shade's collapsed "Silent" section at the very bottom, which
+     * is where a countdown you are meant to glance at is no use to anybody. DEFAULT keeps
+     * it in the main list, and setSilent on the notification is what actually stops it
+     * making any sound — so it is quiet *and* visible rather than quiet by being buried.
+     *
+     * The id carries a suffix because **a channel's importance cannot be raised after it
+     * has been created**. Android forbids that deliberately: importance is the user's
+     * setting to own, not the app's to escalate. The first release created this channel at
+     * LOW, so the only way to correct an app default that was wrong from the start is a
+     * new channel — and the old one is deleted so it does not sit in settings forever as a
+     * control for a notification that no longer exists. This is legitimate exactly once,
+     * for exactly this reason, and must never become a way to undo a choice the user made.
      */
     private fun ensureChannels() {
+        notifications.deleteNotificationChannel(RETIRED_RUNNING_CHANNEL)
         notifications.createNotificationChannel(
-            NotificationChannel(CHANNEL_RUNNING, "Rest running", NotificationManager.IMPORTANCE_LOW)
-                .apply { setShowBadge(false) }
+            NotificationChannel(CHANNEL_RUNNING, "Rest running", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                }
         )
         notifications.createNotificationChannel(
             NotificationChannel(CHANNEL_DONE, "Rest finished", NotificationManager.IMPORTANCE_HIGH)
@@ -192,8 +212,11 @@ class RestTimerService : Service() {
         const val EXTRA_EXERCISE = "exercise"
 
         private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_RUNNING = "rest_running"
+        private const val CHANNEL_RUNNING = "rest_running_v2"
         private const val CHANNEL_DONE = "rest_done"
+
+        /** The LOW-importance channel shipped by 0.1.0, replaced by [CHANNEL_RUNNING]. */
+        private const val RETIRED_RUNNING_CHANNEL = "rest_running"
 
         fun start(context: Context, seconds: Int, exercise: String) {
             if (seconds <= 0) return

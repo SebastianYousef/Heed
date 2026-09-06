@@ -22,22 +22,39 @@ has met a real phone.
   (Android 17, SDK 37). A pre-existing pedometer was observed holding the counter with a
   one-hour batching period, so batched reads work on this hardware.
 
-## Not verified — needs the phone in hand
+## Verified on the device
 
-Everything in this section is written but has not been run on a device. **The phone was
-unplugged before the first install completed**, so nothing below has met real hardware.
-That is the single largest caveat on this page: the app has been compiled, tested at the
-unit level, and never once opened.
+Installed as a signed release to the owner profile on the Pixel 10 (GrapheneOS, SDK 37)
+and driven through by hand:
 
-1. **The insert itself.** The parse is now covered by a test; what is not is how long
-   inserting 876 rows takes on the device on first launch, and whether anything on screen
-   accounts for that wait.
-2. **The logging screen end to end.** The tap count in [logging.md](logging.md) is a claim
-   about a design, not a measurement of a build.
-   Also unverified: the exercise detail screen, the weekly volume card, the bodyweight
-   control, the routine editor and the plan strip, and whether the export share sheet
-   completes — the JSON is built by tested code paths, but nothing has watched a file
-   reach another app.
+- First launch seeds the library and the picker is populated; search and muscle filters work.
+- **`run-as` is refused — "package not debuggable"** — which is the release-build discipline
+  holding from the outside.
+- Logging a set costs one tap, and the steppers keep the last set's numbers for the next.
+  Holding the plus for three seconds carried the weight from 0 to 197.5 kg, so the repeat
+  and its acceleration work.
+- Records fire correctly: set 1 of a new exercise announced nothing, and a heavier set 2
+  announced all three by name.
+- RPE opens on the row after the set and saves.
+- The rest timer runs as a foreground service (`specialUse`), posts a silent ongoing
+  `stopwatch` notification with two actions, and sets an `ELAPSED_WAKEUP` exact alarm tagged
+  `REST_ELAPSED`. The countdown is visible in the shade as "Resting · 02:24".
+- Activity recognition is requested from the Movement half, granted, and the step worker
+  schedules; the ring and week strip render. The first reading credits nothing, by design.
+- Data survived an update install.
+
+## Not verified — needs more than a bench test
+
+- The exact alarm firing **through a real doze**, which is the whole reason it is an alarm.
+- A real reboot, and the steps lost either side of it.
+- The widget on a home screen.
+- The export share sheet reaching another app.
+- Whether any step is ever actually counted — the phone sat on a desk throughout.
+
+1. **The logging screen's tap count** is now a measurement rather than a claim, but only
+   for the paths driven above.
+   Also still unexercised on the device: the weekly volume card, the bodyweight control,
+   the routine editor and the plan strip.
 3. **The rest timer.** Whether the chronometer counts down correctly in the shade, whether
    the exact alarm fires on time through a doze, whether `+30s` and `Skip` behave, and
    whether it survives the screen going off — which is its entire reason for existing.

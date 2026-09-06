@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status-bar icon. Android masks a notification icon to its alpha channel and paints
+  the result, so anything with a filled background renders as a solid white block — which
+  is exactly what the first release shipped, because it reused the launcher icon.
+  White strokes on transparent, nothing else.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M4,9h2v6H4zM2,10.5h1.5v3H2zM18,9h2v6h-2zM20.5,10.5H22v3h-1.5zM7,11h10v2H7z"/>
+</vector>

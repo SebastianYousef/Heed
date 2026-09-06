@@ -95,21 +95,27 @@ fun KeelStepper(
                     .padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Row(verticalAlignment = Alignment.Bottom) {
+                // The unit sits under the number rather than beside it. Inline, it was
+                // competing for width with a value that can be four characters wide, so
+                // "reps" first wrapped to "rep" over "s" and then, once wrapping was
+                // forbidden, clipped its own last letter. Stacked, there is nothing to
+                // compete for: the row is as wide as the widest of the two, and neither
+                // can push the other off the edge.
+                Text(
+                    value,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                unit?.let {
                     Text(
-                        value,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
                     )
-                    unit?.let {
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 3.dp),
-                        )
-                    }
                 }
                 caption?.let {
                     Text(

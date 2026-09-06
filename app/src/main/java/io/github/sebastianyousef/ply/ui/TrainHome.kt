@@ -47,6 +47,7 @@ import io.github.sebastianyousef.ply.train.Load
 fun TrainHome(
     onStart: () -> Unit,
     onRoutines: () -> Unit,
+    onRepeat: (Long) -> Unit,
     modifier: Modifier = Modifier,
     model: HistoryViewModel = viewModel(),
 ) {
@@ -95,7 +96,7 @@ fun TrainHome(
                 item { VolumeCard(volume, unit) }
             }
             item { GroupHeading("Recent sessions") }
-            items(history, key = { it.id }) { SessionCard(it, unit) }
+            items(history, key = { it.id }) { SessionCard(it, unit, onRepeat = { onRepeat(it.id) }) }
         }
     }
 }
@@ -146,7 +147,7 @@ private fun VolumeCard(volume: List<io.github.sebastianyousef.ply.train.MuscleVo
 }
 
 @Composable
-private fun SessionCard(summary: SessionSummary, unit: Load.Unit) {
+private fun SessionCard(summary: SessionSummary, unit: Load.Unit, onRepeat: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().padding(vertical = 5.dp),
         colors = CardDefaults.cardColors(
@@ -178,6 +179,15 @@ private fun SessionCard(summary: SessionSummary, unit: Load.Unit) {
             )
             summary.endedAt?.let {
                 ValueRow("Length", Time.duration(it - summary.startedAt))
+            }
+            // The case a saved routine does not cover, and the more common one: you want
+            // to do Monday again, and Monday was never written down as a plan.
+            if (summary.workingSets > 0) {
+                Spacer(Modifier.height(6.dp))
+                androidx.compose.material3.TextButton(
+                    onClick = onRepeat,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) { Text("Do this session again") }
             }
         }
     }

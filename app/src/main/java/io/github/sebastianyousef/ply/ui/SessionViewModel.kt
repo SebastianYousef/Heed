@@ -94,6 +94,8 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun end() = viewModelScope.launch { repository.endSession() }
 
+    fun repeat(sessionId: Long) = viewModelScope.launch { repository.repeatSession(sessionId) }
+
     /**
      * Puts an exercise on the screen, with the steppers already holding a plausible answer.
      *

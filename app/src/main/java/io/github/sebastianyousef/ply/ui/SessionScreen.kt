@@ -25,8 +25,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +37,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sebastianyousef.keel.ui.Keel
@@ -97,6 +103,9 @@ fun SessionScreen(
     onOpenExercise: (String) -> Unit,
     onStartRest: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** True when the rest timer can run but can never announce itself. */
+    restTimerMuted: Boolean = false,
+    onFixRestTimer: () -> Unit = {},
 ) {
     val pending by model.pending.collectAsStateWithLifecycle()
     val logged by model.setsForCurrent.collectAsStateWithLifecycle()
@@ -145,12 +154,17 @@ fun SessionScreen(
             }
         }
 
+        if (restTimerMuted) {
+            MutedTimerWarning(onFixRestTimer)
+        }
+
         LogControls(
             pending = pending,
             unit = unit,
             setNumber = logged.count { it.kind == SetKind.WORKING } + 1,
             onStepWeight = model::stepWeight,
             onStepReps = model::stepReps,
+            onTypeWeight = model::setWeight,
             onToggleWarmUp = {
                 model.setKind(if (pending.kind == SetKind.WARMUP) SetKind.WORKING else SetKind.WARMUP)
             },
@@ -368,6 +382,87 @@ private fun rpeLabel(value: Float): String =
  */
 private val RPE_VALUES = listOf(6f, 6.5f, 7f, 7.5f, 8f, 8.5f, 9f, 9.5f, 10f)
 
+/**
+ * Says that the timer cannot announce itself, and offers the one tap that fixes it.
+ *
+ * Never collapsed behind a chevron, and shown only while it is true. A rest timer runs
+ * whether or not Ply may post notifications — the foreground service starts either way —
+ * so without this the timer is running, correct, and completely invisible, which is
+ * indistinguishable from a timer that does not work.
+ */
+@Composable
+private fun MutedTimerWarning(onFix: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onFix() }
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.NotificationsOff,
+            contentDescription = null,
+            tint = Keel.semantics.warning,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "The rest timer cannot alert you. Tap to allow notifications.",
+            style = MaterialTheme.typography.labelLarge,
+            color = Keel.semantics.warning,
+        )
+    }
+}
+
+/**
+ * A weight typed rather than stepped.
+ *
+ * The one keyboard on this screen, and it only ever appears because you asked for it by
+ * tapping the number. Everything about the logging path is arranged so this is the
+ * exception rather than the route.
+ */
+@Composable
+private fun WeightDialog(
+    initial: String,
+    unit: Load.Unit,
+    onDismiss: () -> Unit,
+    onAccept: (Int) -> Unit,
+) {
+    var text by rememberSaveable { mutableStateOf(initial) }
+    val parsed = text.replace(',', '.').toDoubleOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Weight in ${unit.label}") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                isError = parsed == null || parsed < 0,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsed != null && parsed >= 0,
+                onClick = {
+                    parsed?.let {
+                        onAccept(
+                            when (unit) {
+                                Load.Unit.KG -> Load.kgToGrams(it)
+                                Load.Unit.LB -> (it * Load.GRAMS_PER_LB).toInt()
+                            }
+                        )
+                    }
+                },
+            ) { Text("Set") }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+    )
+}
+
 /** Which record, in words. A trophy that does not say what it means is one you ignore. */
 private fun RecordKind.phrase(): String = when (this) {
     RecordKind.HEAVIEST -> "heaviest ever"
@@ -382,9 +477,22 @@ private fun LogControls(
     setNumber: Int,
     onStepWeight: (Boolean) -> Unit,
     onStepReps: (Boolean) -> Unit,
+    onTypeWeight: (Int) -> Unit,
     onToggleWarmUp: () -> Unit,
     onLog: () -> Unit,
 ) {
+    var typing by rememberSaveable { mutableStateOf(false) }
+    if (typing) {
+        WeightDialog(
+            initial = Load.format(pending.weightGrams, unit),
+            unit = unit,
+            onDismiss = { typing = false },
+            onAccept = {
+                onTypeWeight(it)
+                typing = false
+            },
+        )
+    }
     Card(
         Modifier.fillMaxWidth().padding(bottom = 12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -396,6 +504,11 @@ private fun LogControls(
                     value = Load.format(pending.weightGrams, unit),
                     unit = unit.label,
                     onStep = onStepWeight,
+                    // The escape hatch from the stepper, and the only place a keyboard
+                    // appears on this screen. Going from an empty bar to 100 kg is
+                    // forty presses; holding the plus accelerates through it, and this is
+                    // for when even that is the wrong shape of effort.
+                    onTapValue = { typing = true },
                     modifier = Modifier.weight(1.25f),
                 )
                 Spacer(Modifier.width(6.dp))
