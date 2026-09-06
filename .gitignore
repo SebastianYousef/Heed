@@ -4,7 +4,11 @@
 local.properties
 .idea/
 .DS_Store
+# Gradle output. Anchored with a negation because an unanchored `build/` also matches a
+# Kotlin package directory called `build` — which silently kept the convention plugins,
+# including the no-network guard, out of version control for eight commits.
 build/
+!**/src/**/build/
 captures/
 .externalNativeBuild
 .cxx
