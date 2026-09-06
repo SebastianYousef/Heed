@@ -34,7 +34,7 @@ android {
         minSdk = 26          // NotificationListenerService removal-reasons + channels
         targetSdk = 35
         versionCode = 26
-        versionName = "1.5.1"
+        versionName = "0.5.1"
     }
 
     signingConfigs {

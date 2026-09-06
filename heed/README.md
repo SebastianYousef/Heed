@@ -134,7 +134,7 @@ GPL-3.0-or-later. You are free to use, study, change and share it; if you distri
 anything built on it, that has to come with source under the same licence, and the
 copyright notices stay on. Closed-source redistribution is not permitted.
 
-Copyright © 2026 Sebastian Yousef. See [LICENSE](LICENSE).
+Copyright © 2026 Sebastian Yousef. See [LICENSE](../LICENSE).
 
 ## Author
 

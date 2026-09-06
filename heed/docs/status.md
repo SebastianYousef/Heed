@@ -1,5 +1,22 @@
 # Status, and what is not verified
 
+## Where Heed sits in this repository
+
+Heed lives in the Keel repository alongside Ply, but is **not yet built on the `:keel`
+base**. It still carries its own copies of the theme, the chart and the disclosure
+components, and its own Gradle wrapper and settings file to build them with — Heed is on
+AGP 8.7.3 and Gradle 8.9, while `:keel` and Ply are on AGP 9.4.0 and Gradle 9.7.1, and
+those cannot share one Gradle invocation.
+
+So the tree currently holds two builds. Run Heed's from `heed/`, not from the root. The
+port that collapses them into one is the largest outstanding piece of work on this app, and
+it is a toolchain upgrade before it is anything else.
+
+`versionName` was walked back from `1.5.1` to `0.5.1` when the repository was restructured.
+Nothing about the app changed; the 1.0 was a claim about how settled it was that turned out
+not to be true four days in. `versionCode` cannot decrease and stays at 26.
+
+
 Verified on a Pixel 10 running GrapheneOS/Android 17 (SDK 37), against real notifications:
 
 - capture, scoring, decision and cancellation all work end to end
